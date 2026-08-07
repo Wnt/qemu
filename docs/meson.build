@@ -12,15 +12,9 @@ if sphinx_build.found()
 
   sphinx_version = run_command(SPHINX_ARGS + ['--version'],
                                check: true).stdout().split()[1]
-  if sphinx_version.version_compare('>=1.7.0')
-    SPHINX_ARGS += ['-j', 'auto']
-  else
-    nproc = find_program('nproc')
-    if nproc.found()
-      jobs = run_command(nproc, check: true).stdout()
-      SPHINX_ARGS += ['-j', jobs]
-    endif
-  endif
+  # Sphinx multiprocessing is unreliable with Python 3.13 (workers can exit
+  # with EOFError). Keep documentation serial; Ninja compilation stays parallel.
+  SPHINX_ARGS += ['-j', '1']
 
   # This is a bit awkward but works: create a trivial document and
   # try to run it with our configuration file (which enforces a
