@@ -2,6 +2,10 @@
 QEMU README
 ===========
 
+    This is a patch-carrying fork; see `KERNEL-HIVE-FORK.md
+    <KERNEL-HIVE-FORK.md>`_ for why it exists and what the ``kernel-hive``
+    branch carries. Upstream's README follows unchanged.
+
 QEMU is a generic and open source machine & userspace emulator and
 virtualizer.
 
