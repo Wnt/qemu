@@ -733,6 +733,7 @@ static int cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
     int dx = 0, dy = 0;
     int depth = 0;
     int notify = 0;
+    bool rop_one;
 
     /* make sure to only copy if it's a plain copy ROP */
     if (*s->cirrus_rop == cirrus_bitblt_rop_fwd_src ||
@@ -773,10 +774,28 @@ static int cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
         }
     }
 
-    (*s->cirrus_rop) (s, s->cirrus_blt_dstaddr,
-                      s->cirrus_blt_srcaddr,
-                      s->cirrus_blt_dstpitch, s->cirrus_blt_srcpitch,
-                      s->cirrus_blt_width, s->cirrus_blt_height);
+    rop_one = *s->cirrus_rop == cirrus_bitblt_rop_fwd_1 ||
+              *s->cirrus_rop == cirrus_bitblt_rop_bkwd_1;
+    if (rop_one) {
+        uint32_t fill_dstaddr = s->cirrus_blt_dstaddr;
+
+        /*
+         * ROP1 ignores the source.  The generic forward helper rejects a
+         * source pitch narrower than the destination even though it is
+         * irrelevant, which drops valid fills emitted by the NT 3.51 driver.
+         */
+        if (*s->cirrus_rop == cirrus_bitblt_rop_bkwd_1) {
+            fill_dstaddr -= s->cirrus_blt_width - 1;
+        }
+        cirrus_fill[rop_to_index[CIRRUS_ROP_1]]
+                   [s->cirrus_blt_pixelwidth - 1](
+            s, fill_dstaddr, s->cirrus_blt_dstpitch,
+            s->cirrus_blt_width, s->cirrus_blt_height);
+    } else {
+        (*s->cirrus_rop)(s, s->cirrus_blt_dstaddr, s->cirrus_blt_srcaddr,
+                         s->cirrus_blt_dstpitch, s->cirrus_blt_srcpitch,
+                         s->cirrus_blt_width, s->cirrus_blt_height);
+    }
 
     if (notify) {
         dpy_gfx_update(s->vga.con, dx, dy,
@@ -796,7 +815,8 @@ static int cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
 
 static int cirrus_bitblt_videotovideo_copy(CirrusVGAState * s)
 {
-    if (blit_is_unsafe(s, false))
+    if (blit_is_unsafe(s, *s->cirrus_rop == cirrus_bitblt_rop_fwd_1 ||
+                          *s->cirrus_rop == cirrus_bitblt_rop_bkwd_1))
         return 0;
 
     return cirrus_do_copy(s, s->cirrus_blt_dstaddr - s->vga.params.start_addr,
