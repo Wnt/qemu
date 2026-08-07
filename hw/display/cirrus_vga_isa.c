@@ -29,6 +29,7 @@
 #include "hw/core/loader.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/isa/isa.h"
+#include "migration/vmstate.h"
 #include "cirrus_vga_internal.h"
 #include "qom/object.h"
 #include "ui/console.h"
@@ -77,11 +78,35 @@ static const Property isa_cirrus_vga_properties[] = {
                      cirrus_vga.vga.global_vmstate, false),
 };
 
+/*
+ * vmstate fix (angle=trace): the ISA device's vmsd must descend into the
+ * embedded CirrusVGAState.  Pointing dc->vmsd straight at vmstate_cirrus_vga
+ * resolves that VMSD's CirrusVGAState field offsets against the *device*
+ * (ISACirrusVGAState) base, which is 160 bytes before cirrus_vga.  The
+ * VGACommonState-relative fields still round-tripped, but the cirrus-direct
+ * fields (cirrus_hidden_dac_data / _lockindex, cirrus_shadow_gr0/1) were saved
+ * and restored from the wrong location, so the hi-colour DAC depth was lost on
+ * loadvm (16bpp 565 -> 15bpp 555 = the blue/lavender corruption).  Wrap exactly
+ * like the PCI variant (vmstate_pci_cirrus_vga) so the substate opaque is the
+ * real CirrusVGAState.  Wire format and section name ("cirrus_vga") are
+ * unchanged.
+ */
+static const VMStateDescription vmstate_isa_cirrus_vga = {
+    .name = "cirrus_vga",
+    .version_id = 2,
+    .minimum_version_id = 1,
+    .fields = (const VMStateField[]) {
+        VMSTATE_STRUCT(cirrus_vga, ISACirrusVGAState, 0,
+                       vmstate_cirrus_vga, CirrusVGAState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static void isa_cirrus_vga_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->vmsd  = &vmstate_cirrus_vga;
+    dc->vmsd  = &vmstate_isa_cirrus_vga;
     dc->realize = isa_cirrus_vga_realizefn;
     device_class_set_props(dc, isa_cirrus_vga_properties);
     set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
