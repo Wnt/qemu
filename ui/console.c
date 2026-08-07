@@ -23,6 +23,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "system/runstate.h"  /* streamhost: runstate_is_running for fast-poll gating */
 #include "ui/console.h"
 #include "hw/core/qdev.h"
 #include "qapi/error.h"
@@ -96,6 +97,17 @@ static void gui_update(void *opaque)
         if (interval > dcl_interval) {
             interval = dcl_interval;
         }
+    }
+    /*
+     * streamhost fast-poll idle gate: a stopped guest's display cannot change,
+     * so do not spin the refresh timer at the fast SH_DBUS_UPDATE_MS interval
+     * while the vCPUs are paused. streamhost pauses unwatched tiles, so this
+     * keeps paused/unwatched tiles at ~0 idle cost; a running (watched) guest
+     * still gets the fast interval, and the next tick after resume (<=30 ms)
+     * restores it. Only ever lengthens the interval, never shortens it.
+     */
+    if (interval < GUI_REFRESH_INTERVAL_DEFAULT && !runstate_is_running()) {
+        interval = GUI_REFRESH_INTERVAL_DEFAULT;
     }
     if (ds->update_interval != interval) {
         ds->update_interval = interval;

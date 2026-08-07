@@ -740,6 +740,32 @@ static void dbus_gl_refresh(DisplayChangeListener *dcl)
 
 static void dbus_refresh(DisplayChangeListener *dcl)
 {
+    /*
+     * streamhost poll-cadence probe: exactly one dbus_refresh call per display
+     * poll tick. SH_DBUS_TRACE=1 prints the tick rate (== effective
+     * 1/update_interval while the guest keeps changing) every ~2s to stderr.
+     * Inert unless the env is set; measurement-only, safe to keep in tree.
+     */
+    static int sh_trace = -1;
+    if (sh_trace < 0) {
+        const char *e = getenv("SH_DBUS_TRACE");
+        sh_trace = (e && e[0] == '1') ? 1 : 0;
+    }
+    if (sh_trace) {
+        static unsigned long n;
+        static gint64 t0;
+        gint64 now = g_get_monotonic_time();
+        if (t0 == 0) {
+            t0 = now;
+        }
+        n++;
+        if (now - t0 >= 2000000) {
+            fprintf(stderr, "[dbus_poll] ticks=%lu in %.3fs -> %.1f/s\n",
+                    n, (now - t0) / 1e6, n * 1e6 / (double)(now - t0));
+            n = 0;
+            t0 = now;
+        }
+    }
     graphic_hw_update(dcl->con);
 }
 
@@ -989,6 +1015,28 @@ dbus_display_listener_constructed(GObject *object)
         ddl->dcl.ops = &dbus_gl_dcl_ops;
     }
 #endif
+
+    /*
+     * streamhost fast-poll: the dbus display is polled on the shared GUI
+     * refresh timer, which defaults to GUI_REFRESH_INTERVAL_DEFAULT (30 ms).
+     * A finished guest frame therefore waits on average ~15 ms for the next
+     * poll before it is captured. Setting a smaller per-listener
+     * update_interval shrinks that capture-wait (console.c takes the min over
+     * all listeners). SH_DBUS_UPDATE_MS=<ms> (1..29); unset/0/out-of-range
+     * keeps the stock 30 ms behavior. The companion gui_update() gate in
+     * console.c caps the interval back at the stock default while the vCPUs
+     * are paused, so an unwatched/paused tile pays ~0 idle cost - the fast
+     * scan is only spent while the guest is running (watched).
+     */
+    {
+        const char *sh_ms = getenv("SH_DBUS_UPDATE_MS");
+        if (sh_ms) {
+            int ms = atoi(sh_ms);
+            if (ms >= 1 && ms < GUI_REFRESH_INTERVAL_DEFAULT) {
+                ddl->dcl.update_interval = ms;
+            }
+        }
+    }
 
     G_OBJECT_CLASS(dbus_display_listener_parent_class)->constructed(object);
 }
