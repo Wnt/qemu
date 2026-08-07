@@ -263,3 +263,8 @@ config XLNX_VERSAL_TRNG
     bool
 
 source macio/Kconfig
+
+config GALLERY_HID
+    bool
+    default y if PCI_DEVICES
+    depends on PCI
