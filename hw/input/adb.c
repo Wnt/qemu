@@ -106,6 +106,17 @@ int adb_request(ADBBusState *s, uint8_t *obuf, const uint8_t *buf, int len)
     return ret;
 }
 
+/*
+ * ADB autopoll period. The cursor speed ceiling on the relative ADB mouse is
+ * (63 counts/report) x (reports/s) x (px/count): one report is delivered per
+ * autopoll fire, so this period sets the top speed. The upstream default was 20
+ * ms (50 Hz ~ 1130 px/s at the q800's 0.36 px/count), which reads as a sluggish
+ * cursor "always catching up". 5 ms lifts the ceiling ~4x; it is self-limiting
+ * because autopoll is blocked during each guest ADB transaction (see
+ * adb_autopoll_block), so the guest's ack rate, not this value, is the real cap.
+ */
+#define ADB_AUTOPOLL_RATE_MS 5
+
 int adb_poll(ADBBusState *s, uint8_t *obuf, uint16_t poll_mask)
 {
     ADBDevice *d;
@@ -217,10 +228,28 @@ void adb_register_autopoll_callback(ADBBusState *s, void (*cb)(void *opaque),
     s->autopoll_cb_opaque = opaque;
 }
 
+/*
+ * A checkpoint baked before this change saved autopoll_rate_ms=20; force the
+ * fast rate on load so the raised ceiling applies without re-baking goldens,
+ * and re-arm the timer so it takes effect immediately.
+ */
+static int adb_bus_post_load(void *opaque, int version_id)
+{
+    ADBBusState *s = opaque;
+
+    s->autopoll_rate_ms = ADB_AUTOPOLL_RATE_MS;
+    if (s->autopoll_enabled && !s->autopoll_blocked && s->autopoll_mask) {
+        timer_mod(s->autopoll_timer,
+                  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + s->autopoll_rate_ms);
+    }
+    return 0;
+}
+
 static const VMStateDescription vmstate_adb_bus = {
     .name = "adb_bus",
     .version_id = 0,
     .minimum_version_id = 0,
+    .post_load = adb_bus_post_load,
     .fields = (const VMStateField[]) {
         VMSTATE_TIMER_PTR(autopoll_timer, ADBBusState),
         VMSTATE_BOOL(autopoll_enabled, ADBBusState),
@@ -237,7 +266,7 @@ static void adb_bus_reset_hold(Object *obj, ResetType type)
 
     adb_bus->autopoll_enabled = false;
     adb_bus->autopoll_mask = 0xffff;
-    adb_bus->autopoll_rate_ms = 20;
+    adb_bus->autopoll_rate_ms = ADB_AUTOPOLL_RATE_MS;
 }
 
 static void adb_bus_realize(BusState *qbus, Error **errp)

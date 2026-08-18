@@ -33,6 +33,32 @@
 
 OBJECT_DECLARE_TYPE(MouseState, ADBMouseClass, ADB_MOUSE)
 
+/*
+ * Button-barrier FIFO. The classic ADB mouse accumulates motion losslessly but
+ * reports the CURRENT button state in every poll, so a button edge reaches the
+ * guest on the next poll while the motion queued before it is still draining
+ * (<=63 counts/report). A fast window-drag therefore releases mid-motion: the
+ * guest sees button-up before the cursor has reached where the visitor let go.
+ *
+ * Instead we keep an ordered queue of segments. Motion coalesces into the tail
+ * segment; a button edge starts a NEW segment. The poll delivers segments in
+ * order and only advances the reported button state once the motion ahead of an
+ * edge has fully drained -- so a press lands where the cursor arrived and a
+ * release lands where the drag ended, structurally, at any poll rate. The host
+ * can then send raw full deltas and real button edges with no pacing.
+ *
+ * Not migrated as a queue: collapsed into (dx,dy,buttons_state,last_buttons_state)
+ * on save and reseeded into one segment on load. A checkpoint is quiescent (no
+ * motion or button in flight), so this is lossless and keeps vmstate v2 wire-
+ * compatible with checkpoints baked before this change.
+ */
+#define ADB_MOUSE_SEG_MAX 32
+
+typedef struct ADBMouseSeg {
+    int dx, dy;
+    int buttons;
+} ADBMouseSeg;
+
 struct MouseState {
     /*< public >*/
     ADBDevice parent_obj;
@@ -41,7 +67,40 @@ struct MouseState {
     QemuInputHandlerState *hs;
     int buttons_state, last_buttons_state;
     int dx, dy, dz;
+
+    ADBMouseSeg seg[ADB_MOUSE_SEG_MAX];
+    int seg_head;          /* index of the segment currently being delivered */
+    int seg_count;         /* active segments, >= 1 */
+    int reported_buttons;  /* button state last delivered to the guest */
 };
+
+static inline ADBMouseSeg *adb_mouse_tail(MouseState *s)
+{
+    return &s->seg[(s->seg_head + s->seg_count - 1) % ADB_MOUSE_SEG_MAX];
+}
+
+static void adb_mouse_seg_init(MouseState *s, int buttons)
+{
+    s->seg_head = 0;
+    s->seg_count = 1;
+    s->seg[0].dx = 0;
+    s->seg[0].dy = 0;
+    s->seg[0].buttons = buttons;
+    s->reported_buttons = buttons;
+}
+
+static void adb_mouse_push_button(MouseState *s, int buttons)
+{
+    if (s->seg_count < ADB_MOUSE_SEG_MAX) {
+        int idx = (s->seg_head + s->seg_count) % ADB_MOUSE_SEG_MAX;
+        s->seg[idx].dx = 0;
+        s->seg[idx].dy = 0;
+        s->seg[idx].buttons = buttons;
+        s->seg_count++;
+    } else {
+        adb_mouse_tail(s)->buttons = buttons;
+    }
+}
 
 
 struct ADBMouseClass {
@@ -70,19 +129,23 @@ static void adb_mouse_handle_event(DeviceState *dev, QemuConsole *src,
     case INPUT_EVENT_KIND_REL:
         move = evt->u.rel.data;
         if (move->axis == INPUT_AXIS_X) {
-            s->dx += move->value;
+            adb_mouse_tail(s)->dx += move->value;
         } else if (move->axis == INPUT_AXIS_Y) {
-            s->dy += move->value;
+            adb_mouse_tail(s)->dy += move->value;
         }
         break;
 
     case INPUT_EVENT_KIND_BTN:
         btn = evt->u.btn.data;
         if (bmap[btn->button]) {
+            int prev = s->buttons_state;
             if (btn->down) {
                 s->buttons_state |= bmap[btn->button];
             } else {
                 s->buttons_state &= ~bmap[btn->button];
+            }
+            if (s->buttons_state != prev) {
+                adb_mouse_push_button(s, s->buttons_state);
             }
         }
         break;
@@ -107,38 +170,62 @@ static const QemuInputHandler adb_mouse_handler = {
 static int adb_mouse_poll(ADBDevice *d, uint8_t *obuf)
 {
     MouseState *s = ADB_MOUSE(d);
+    ADBMouseSeg *seg;
     int dx, dy;
 
-    if (s->last_buttons_state == s->buttons_state &&
-        s->dx == 0 && s->dy == 0) {
+    /*
+     * Skip head segments that are fully consumed -- no motion left AND no button
+     * change to announce -- so the reported button state only advances once the
+     * motion ahead of an edge has drained. Stop at the first segment that still
+     * owes the guest a motion count or a button transition.
+     */
+    for (;;) {
+        seg = &s->seg[s->seg_head];
+        if (seg->dx != 0 || seg->dy != 0) {
+            break;
+        }
+        if (seg->buttons != s->reported_buttons) {
+            break;
+        }
+        if (s->seg_count > 1) {
+            s->seg_head = (s->seg_head + 1) % ADB_MOUSE_SEG_MAX;
+            s->seg_count--;
+            continue;
+        }
         return 0;
     }
 
-    dx = s->dx;
+    dx = seg->dx;
     if (dx < -63) {
         dx = -63;
     } else if (dx > 63) {
         dx = 63;
     }
 
-    dy = s->dy;
+    dy = seg->dy;
     if (dy < -63) {
         dy = -63;
     } else if (dy > 63) {
         dy = 63;
     }
 
-    s->dx -= dx;
-    s->dy -= dy;
-    s->last_buttons_state = s->buttons_state;
+    seg->dx -= dx;
+    seg->dy -= dy;
+    /*
+     * Deliver THIS segment's button state; a transition rides the first report
+     * of its segment, i.e. only after the previous segment's motion drained.
+     */
+    s->reported_buttons = seg->buttons;
+    s->last_buttons_state = seg->buttons;
+    s->buttons_state = adb_mouse_tail(s)->buttons;
 
     dx &= 0x7f;
     dy &= 0x7f;
 
-    if (!(s->buttons_state & ADB_MOUSE_BUTTON_LEFT)) {
+    if (!(s->reported_buttons & ADB_MOUSE_BUTTON_LEFT)) {
         dy |= 0x80;
     }
-    if (!(s->buttons_state & ADB_MOUSE_BUTTON_RIGHT)) {
+    if (!(s->reported_buttons & ADB_MOUSE_BUTTON_RIGHT)) {
         dx |= 0x80;
     }
 
@@ -154,8 +241,10 @@ static int adb_mouse_request(ADBDevice *d, uint8_t *obuf,
     int cmd, reg, olen;
 
     if ((buf[0] & 0x0f) == ADB_FLUSH) {
-        /* flush mouse fifo */
-        s->buttons_state = s->last_buttons_state;
+        /* flush mouse fifo: drop pending motion and any queued button edges,
+         * keeping the button state the guest has already been told about. */
+        adb_mouse_seg_init(s, s->reported_buttons);
+        s->buttons_state = s->reported_buttons;
         s->dx = 0;
         s->dy = 0;
         s->dz = 0;
@@ -239,8 +328,11 @@ static bool adb_mouse_has_data(ADBDevice *d)
 {
     MouseState *s = ADB_MOUSE(d);
 
-    return !(s->last_buttons_state == s->buttons_state &&
-             s->dx == 0 && s->dy == 0);
+    ADBMouseSeg *seg = &s->seg[s->seg_head];
+
+    return seg->dx != 0 || seg->dy != 0 ||
+           seg->buttons != s->reported_buttons ||
+           s->seg_count > 1;
 }
 
 static void adb_mouse_reset(DeviceState *dev)
@@ -252,12 +344,46 @@ static void adb_mouse_reset(DeviceState *dev)
     d->devaddr = ADB_DEVID_MOUSE;
     s->last_buttons_state = s->buttons_state = 0;
     s->dx = s->dy = s->dz = 0;
+    adb_mouse_seg_init(s, 0);
+}
+
+/* Collapse the ring into the migrated scalar fields (a checkpoint is quiescent,
+ * so this is exact); reseed one segment on load. Keeps vmstate v2 wire-compatible
+ * with checkpoints baked before the button-barrier FIFO existed. */
+static int adb_mouse_pre_save(void *opaque)
+{
+    MouseState *s = opaque;
+    int i, tx = 0, ty = 0;
+
+    for (i = 0; i < s->seg_count; i++) {
+        ADBMouseSeg *g = &s->seg[(s->seg_head + i) % ADB_MOUSE_SEG_MAX];
+        tx += g->dx;
+        ty += g->dy;
+    }
+    s->dx = tx;
+    s->dy = ty;
+    s->buttons_state = adb_mouse_tail(s)->buttons;
+    s->last_buttons_state = s->reported_buttons;
+    return 0;
+}
+
+static int adb_mouse_post_load(void *opaque, int version_id)
+{
+    MouseState *s = opaque;
+
+    adb_mouse_seg_init(s, s->buttons_state);
+    s->seg[0].dx = s->dx;
+    s->seg[0].dy = s->dy;
+    s->reported_buttons = s->last_buttons_state;
+    return 0;
 }
 
 static const VMStateDescription vmstate_adb_mouse = {
     .name = "adb_mouse",
     .version_id = 2,
     .minimum_version_id = 2,
+    .pre_save = adb_mouse_pre_save,
+    .post_load = adb_mouse_post_load,
     .fields = (const VMStateField[]) {
         VMSTATE_STRUCT(parent_obj, MouseState, 0, vmstate_adb_device,
                        ADBDevice),
@@ -277,6 +403,7 @@ static void adb_mouse_realizefn(DeviceState *dev, Error **errp)
 
     amc->parent_realize(dev, errp);
 
+    adb_mouse_seg_init(s, 0);
     s->hs = qemu_input_handler_register(dev, &adb_mouse_handler);
 }
 
