@@ -1087,6 +1087,41 @@ const VMStateDescription vmstate_ppc_timebase = {
     },
 };
 
+/*
+ * kernel-hive: migrate the per-CPU softmmu timebase state.
+ *
+ * Without this, savevm/loadvm never carries tb_env: a snapshot restored in
+ * a fresh process resumes with tb_offset = 0, so the guest-visible TB jumps
+ * by whatever offset the guest had programmed (Mac OS 9's nanokernel zeroes
+ * the TB during boot, leaving tb_offset around -30 s).  Mac OS 9 notices the
+ * discontinuity and dies in its interrupts-off TB-repair loop.  Referenced
+ * from the cpu vmstate as the "cpu/tb_env" subsection (target/ppc/machine.c).
+ */
+static int ppc_tb_env_post_load(void *opaque, int version_id)
+{
+    ppc_tb_t *tb_env = opaque;
+
+    if (tb_env->decr_timer != NULL) {
+        timer_mod(tb_env->decr_timer,
+                  tb_to_ns_round_up(tb_env->decr_freq, tb_env->decr_next));
+    }
+    return 0;
+}
+
+const VMStateDescription vmstate_ppc_tb_env = {
+    .name = "cpu/tb_env/state",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .post_load = ppc_tb_env_post_load,
+    .fields = (const VMStateField []) {
+        VMSTATE_INT64(tb_offset, ppc_tb_t),
+        VMSTATE_INT64(atb_offset, ppc_tb_t),
+        VMSTATE_INT64(vtb_offset, ppc_tb_t),
+        VMSTATE_UINT64(decr_next, ppc_tb_t),
+        VMSTATE_END_OF_LIST()
+    },
+};
+
 /* Set up (once) timebase frequency (in Hz) */
 void cpu_ppc_tb_init(CPUPPCState *env, uint32_t freq)
 {

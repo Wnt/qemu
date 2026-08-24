@@ -9,6 +9,7 @@
 #include "kvm_ppc.h"
 #include "power8-pmu.h"
 #include "system/replay.h"
+#include "hw/ppc/ppc.h"
 
 static void post_load_update_msr(CPUPPCState *env)
 {
@@ -710,6 +711,32 @@ static const VMStateDescription vmstate_rtas_stopped = {
     }
 };
 
+/*
+ * kernel-hive: carry the softmmu timebase state (tb_offset & friends) in the
+ * snapshot.  Without it a checkpoint restored in a fresh process resumes with
+ * tb_offset = 0 and the guest-visible TB jumps by whatever offset the guest
+ * had programmed — Mac OS 9's nanokernel wedges permanently on the jump
+ * (interrupts-off TB-repair loop; see kernel-hive docs/guests/macos9.md).
+ */
+static bool tb_env_needed(void *opaque)
+{
+    PowerPCCPU *cpu = opaque;
+
+    return tcg_enabled() && cpu->env.tb_env != NULL;
+}
+
+static const VMStateDescription vmstate_tb_env = {
+    .name = "cpu/tb_env",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .needed = tb_env_needed,
+    .fields = (const VMStateField[]) {
+        VMSTATE_STRUCT_POINTER(env.tb_env, PowerPCCPU,
+                               vmstate_ppc_tb_env, ppc_tb_t),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 #ifdef TARGET_PPC64
 static bool bhrb_needed(void *opaque)
 {
@@ -777,6 +804,7 @@ const VMStateDescription vmstate_ppc_cpu = {
         &vmstate_compat,
         &vmstate_reservation,
         &vmstate_rtas_stopped,
+        &vmstate_tb_env,
         NULL
     }
 };
