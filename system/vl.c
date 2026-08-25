@@ -223,6 +223,7 @@ static const struct {
     { .driver = "vmware-svga",          .flag = &default_vga       },
     { .driver = "qxl-vga",              .flag = &default_vga       },
     { .driver = "virtio-vga",           .flag = &default_vga       },
+    { .driver = "s3-trio",              .flag = &default_vga       },
     { .driver = "ati-vga",              .flag = &default_vga       },
     { .driver = "vhost-user-vga",       .flag = &default_vga       },
     { .driver = "virtio-vga-gl",        .flag = &default_vga       },
@@ -987,6 +988,11 @@ static const VGAInterfaceInfo vga_interfaces[VGA_TYPE_MAX] = {
         .opt_name = "cg3",
         .name = "CG3 framebuffer",
         .class_names = { "cgthree" },
+    },
+    [VGA_S3] = {
+        .opt_name = "s3",
+        .name = "S3 Trio",
+        .class_names = { "s3-trio" },
     },
 #ifdef CONFIG_XEN_BACKEND
     [VGA_XENFB] = {
