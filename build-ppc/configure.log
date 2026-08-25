@@ -1,0 +1,648 @@
+python determined to be '/usr/bin/python3'
+python version: Python 3.13.5
+mkvenv: Creating non-isolated virtual environment at 'pyvenv'
+mkvenv: checking for meson>=1.5.0
+mkvenv: checking for pycotap>=1.1.0
+mkvenv: installing pycotap==1.3.1
+mkvenv: checking for qemu.qmp>=0.0.5
+mkvenv: checking for setuptools>=44.1.1
+mkvenv: checking for wheel>=0.34.2
+mkvenv: checking for pip>=20.3.4
+mkvenv: installing qemu.qmp==0.0.5, pip>=20.3.4
+mkvenv: installing /data/vms/sandbox/aix432/build/qemu/python
+mkvenv: checking for sphinx>=3.4.3
+mkvenv: checking for sphinx_rtd_theme>=0.5
+The Meson build system
+Version: 1.7.0
+Source dir: /data/vms/sandbox/aix432/build/qemu
+Build dir: /data/vms/sandbox/aix432/build/qemu/build-ppc
+Build type: native build
+Project name: qemu
+Project version: 11.0.2
+C compiler for the host machine: cc -m64 (gcc 14.2.0 "cc (Debian 14.2.0-19) 14.2.0")
+C linker for the host machine: cc -m64 ld.bfd 2.44
+Host machine cpu family: x86_64
+Host machine cpu: x86_64
+Program scripts/symlink-install-tree.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/symlink-install-tree.py)
+Program sh found: YES (/usr/bin/sh)
+Program python3 found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3)
+C++ compiler for the host machine: c++ -m64 (gcc 14.2.0 "c++ (Debian 14.2.0-19) 14.2.0")
+C++ linker for the host machine: c++ -m64 ld.bfd 2.44
+Compiler for language rust skipped: feature rust disabled
+Program iasl found: NO
+Checking for size of "void *" : 8 
+Compiler for C supports arguments -fno-link-libatomic: NO 
+Compiler for C supports link arguments -Wl,-z,relro: YES 
+Compiler for C supports link arguments -Wl,-z,now: YES 
+Checking if "-fzero-call-used-regs=used-gpr" compiles: YES 
+Compiler for C supports arguments -mcx16: YES 
+Compiler for C supports arguments -msse2: YES 
+Compiler for C supports arguments -D_GNU_SOURCE: YES 
+Compiler for C supports arguments -D_FILE_OFFSET_BITS=64: YES 
+Compiler for C supports arguments -D_LARGEFILE_SOURCE: YES 
+Compiler for C supports arguments -fno-strict-aliasing: YES 
+Compiler for C supports arguments -fno-common: YES 
+Compiler for C supports arguments -fwrapv: YES 
+Compiler for C supports arguments -ftrivial-auto-var-init=zero: YES 
+Compiler for C supports arguments -fzero-init-padding-bits=all: NO 
+Compiler for C supports arguments -fzero-call-used-regs=used-gpr: YES 
+Compiler for C supports arguments -fstack-protector-strong: YES 
+Compiler for C supports arguments -Wempty-body: YES 
+Compiler for C supports arguments -Wendif-labels: YES 
+Compiler for C supports arguments -Wexpansion-to-defined: YES 
+Compiler for C supports arguments -Wformat-overflow=2: YES 
+Compiler for C supports arguments -Wformat-security: YES 
+Compiler for C supports arguments -Wformat-y2k: YES 
+Compiler for C supports arguments -Wignored-qualifiers: YES 
+Compiler for C supports arguments -Wimplicit-fallthrough=2: YES 
+Compiler for C supports arguments -Winit-self: YES 
+Compiler for C supports arguments -Wmissing-format-attribute: YES 
+Compiler for C supports arguments -Wmissing-prototypes: YES 
+Compiler for C supports arguments -Wnested-externs: YES 
+Compiler for C supports arguments -Wold-style-declaration: YES 
+Compiler for C supports arguments -Wold-style-definition: YES 
+Compiler for C supports arguments -Wredundant-decls: YES 
+Compiler for C supports arguments -Wshadow=local: YES 
+Compiler for C supports arguments -Wstrict-prototypes: YES 
+Compiler for C supports arguments -Wtype-limits: YES 
+Compiler for C supports arguments -Wundef: YES 
+Compiler for C supports arguments -Wvla: YES 
+Compiler for C supports arguments -Wwrite-strings: YES 
+Compiler for C supports arguments -Wno-gnu-variable-sized-type-not-at-end: NO 
+Compiler for C supports arguments -Wno-initializer-overrides: NO 
+Compiler for C supports arguments -Wno-missing-include-dirs: YES 
+Compiler for C supports arguments -Wno-psabi: YES 
+Compiler for C supports arguments -Wno-shift-negative-value: YES 
+Compiler for C supports arguments -Wno-string-plus-int: NO 
+Compiler for C supports arguments -Wno-tautological-type-limit-compare: NO 
+Compiler for C supports arguments -Wno-typedef-redefinition: NO 
+Compiler for C++ supports arguments -mcx16: YES 
+Compiler for C++ supports arguments -msse2: YES 
+Compiler for C++ supports arguments -D_GNU_SOURCE: YES 
+Compiler for C++ supports arguments -D_FILE_OFFSET_BITS=64: YES 
+Compiler for C++ supports arguments -D_LARGEFILE_SOURCE: YES 
+Compiler for C++ supports arguments -fno-strict-aliasing: YES 
+Compiler for C++ supports arguments -fno-common: YES 
+Compiler for C++ supports arguments -fwrapv: YES 
+Compiler for C++ supports arguments -ftrivial-auto-var-init=zero: YES 
+Compiler for C++ supports arguments -fzero-init-padding-bits=all: NO 
+Compiler for C++ supports arguments -fzero-call-used-regs=used-gpr: YES 
+Compiler for C++ supports arguments -D__STDC_LIMIT_MACROS: YES 
+Compiler for C++ supports arguments -D__STDC_CONSTANT_MACROS: YES 
+Compiler for C++ supports arguments -D__STDC_FORMAT_MACROS: YES 
+Compiler for C++ supports arguments -fstack-protector-strong: YES 
+Compiler for C++ supports arguments -Wempty-body: YES 
+Compiler for C++ supports arguments -Wendif-labels: YES 
+Compiler for C++ supports arguments -Wexpansion-to-defined: YES 
+Compiler for C++ supports arguments -Wformat-overflow=2: YES 
+Compiler for C++ supports arguments -Wformat-security: YES 
+Compiler for C++ supports arguments -Wformat-y2k: YES 
+Compiler for C++ supports arguments -Wignored-qualifiers: YES 
+Compiler for C++ supports arguments -Wimplicit-fallthrough=2: YES 
+Compiler for C++ supports arguments -Winit-self: YES 
+Compiler for C++ supports arguments -Wmissing-format-attribute: YES 
+Compiler for C++ supports arguments -Wmissing-prototypes: NO 
+Compiler for C++ supports arguments -Wnested-externs: NO 
+Compiler for C++ supports arguments -Wold-style-declaration: NO 
+Compiler for C++ supports arguments -Wold-style-definition: NO 
+Compiler for C++ supports arguments -Wredundant-decls: YES 
+Compiler for C++ supports arguments -Wshadow=local: YES 
+Compiler for C++ supports arguments -Wstrict-prototypes: NO 
+Compiler for C++ supports arguments -Wtype-limits: YES 
+Compiler for C++ supports arguments -Wundef: YES 
+Compiler for C++ supports arguments -Wvla: YES 
+Compiler for C++ supports arguments -Wwrite-strings: YES 
+Compiler for C++ supports arguments -Wno-gnu-variable-sized-type-not-at-end: NO 
+Compiler for C++ supports arguments -Wno-initializer-overrides: NO 
+Compiler for C++ supports arguments -Wno-missing-include-dirs: YES 
+Compiler for C++ supports arguments -Wno-psabi: YES 
+Compiler for C++ supports arguments -Wno-shift-negative-value: YES 
+Compiler for C++ supports arguments -Wno-string-plus-int: NO 
+Compiler for C++ supports arguments -Wno-tautological-type-limit-compare: NO 
+Compiler for C++ supports arguments -Wno-typedef-redefinition: NO 
+Program cgcc found: NO
+Library m found: YES
+Run-time dependency threads found: YES
+Library util found: YES
+Run-time dependency appleframeworks found: NO (tried framework)
+Found pkg-config: YES (/usr/bin/pkg-config) 1.8.1
+Run-time dependency xencontrol found: NO (tried pkgconfig)
+Library xenstore found: NO
+Library xenctrl found: NO
+Library xendevicemodel found: NO
+Library xenforeignmemory found: NO
+Library xengnttab found: NO
+Library xenevtchn found: NO
+Library xentoolcore found: NO
+Run-time dependency glib-2.0 found: YES 2.84.4
+Run-time dependency gmodule-no-export-2.0 found: YES 2.84.4
+Run-time dependency gio-2.0 found: YES 2.84.4
+Program gdbus-codegen found: YES (/usr/bin/gdbus-codegen)
+Run-time dependency gio-unix-2.0 found: YES 2.84.4
+Program scripts/xml-preprocess.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/xml-preprocess.py)
+Run-time dependency pixman-1 found: YES 0.44.0
+Run-time dependency zlib found: YES 1.3.1
+Has header "libaio.h" : YES 
+Library aio found: YES
+Run-time dependency liburing found: YES 2.9
+Run-time dependency libnfs found: NO (tried pkgconfig)
+Run-time dependency appleframeworks found: NO (tried framework)
+Run-time dependency appleframeworks found: NO (tried framework)
+Run-time dependency libseccomp found: YES 2.6.0
+Header "seccomp.h" has symbol "SCMP_FLTATR_API_SYSRAWRC" with dependency libseccomp: YES 
+Has header "cap-ng.h" : YES 
+Library cap-ng found: YES
+Run-time dependency xkbcommon found: YES 1.7.0
+Run-time dependency slirp found: YES 4.8.0
+Has header "libvdeplug.h" : NO 
+Run-time dependency libpulse found: YES 17.0
+Run-time dependency alsa found: YES 1.2.14
+Run-time dependency jack found: NO (tried pkgconfig)
+Run-time dependency libpipewire-0.3 found: YES 1.4.2
+Run-time dependency sndio found: YES 1.10.0
+Run-time dependency spice-protocol found: YES 0.14.3
+Run-time dependency spice-server found: YES 0.15.2
+Checking for function "shm_open" : YES 
+Run-time dependency libiscsi found: YES 1.20.0
+Run-time dependency libzstd found: YES 1.5.7
+Run-time dependency qpl found: NO (tried pkgconfig)
+Run-time dependency libwd found: NO (tried pkgconfig)
+Run-time dependency libwd_comp found: NO (tried pkgconfig)
+Run-time dependency qatzip found: NO (tried pkgconfig)
+Run-time dependency virglrenderer found: YES 1.1.0
+Run-time dependency rutabaga_gfx_ffi found: NO (tried pkgconfig)
+Run-time dependency blkio found: NO (tried pkgconfig)
+Run-time dependency libcurl found: YES 8.14.1
+Run-time dependency libudev found: YES 257
+Run-time dependency igvm found: NO (tried pkgconfig)
+Run-time dependency ncursesw found: NO (tried pkgconfig)
+Has header "curses.h" : NO 
+Message: Trying with /usr/include/ncursesw
+Has header "curses.h" : NO 
+Has header "brlapi.h" : NO 
+Run-time dependency sdl2 found: YES 2.32.4
+Run-time dependency sdl2_image found: NO (tried pkgconfig)
+Library rados found: YES
+Has header "rbd/librbd.h" : YES 
+Library rbd found: YES
+Run-time dependency glusterfs-api found: NO (tried pkgconfig)
+Run-time dependency libssh found: NO (tried pkgconfig)
+Has header "bzlib.h" : YES 
+Library bz2 found: YES
+Has header "lzfse.h" : NO 
+Has header "sys/soundcard.h" : YES 
+Dependency epoxy skipped: feature opengl disabled
+Has header "epoxy/egl.h" with dependency epoxy: YES 
+Run-time dependency gbm found: YES 25.0.7-2+deb13u1
+Found CMake: /usr/bin/cmake (3.31.6)
+Run-time dependency libcbor found: NO (tried pkgconfig and cmake)
+Run-time dependency gnutls found: YES 3.8.9
+Run-time dependency capstone found: NO (tried pkgconfig)
+Run-time dependency gmp found: YES 6.3.0
+Run-time dependency gtk+-3.0 found: NO (tried pkgconfig)
+Run-time dependency x11 found: YES 1.8.12
+Run-time dependency libpng found: YES 1.6.48
+Run-time dependency libjpeg found: YES 2.1.5
+Has header "sasl/sasl.h" : YES 
+Library sasl2 found: YES
+Has header "security/pam_appl.h" : NO 
+Has header "snappy-c.h" : NO 
+Has header "lzo/lzo1x.h" : YES 
+Library lzo2 found: YES
+Has header "numa.h" : YES 
+Library numa found: YES
+Library fdt found: YES
+Has header "rdma/rdma_cma.h" : NO 
+Library ibverbs found: NO
+Run-time dependency libcacard found: NO (tried pkgconfig)
+Run-time dependency u2f-emu found: NO (tried pkgconfig)
+Run-time dependency canokey-qemu found: NO (tried pkgconfig)
+Run-time dependency libusbredirparser-0.5 found: YES 0.15.0
+Run-time dependency libusb-1.0 found: YES 1.0.28
+Run-time dependency libpmem found: NO (tried pkgconfig)
+Run-time dependency libdaxctl found: NO (tried pkgconfig)
+Run-time dependency libtasn1 found: YES 4.20.0
+Run-time dependency libkeyutils found: NO (tried pkgconfig)
+Checking for function "gettid" : YES 
+Run-time dependency libselinux found: YES 3.8.1
+Checking for function "malloc_trim" : YES 
+Run-time dependency fuse3 found: YES 3.17.2
+Run-time dependency libbpf found: NO (tried pkgconfig)
+Run-time dependency libdw found: NO (tried pkgconfig)
+Header "linux/fs.h" has symbol "FIFREEZE" : YES 
+Header "linux/fs.h" has symbol "FITRIM" : YES 
+Checking for function "numa_has_preferred_many" with dependency -lnuma: YES 
+Has header "linux/magic.h" : YES 
+Has header "valgrind/valgrind.h" : NO 
+Has header "linux/btrfs.h" : YES 
+Has header "libdrm/drm.h" : YES 
+Has header "linux/openat2.h" : YES 
+Has header "pty.h" : YES 
+Has header "sys/disk.h" : NO 
+Has header "sys/ioccom.h" : NO 
+Has header "sys/kcov.h" : NO 
+Checking for function "close_range" : YES 
+Checking for function "accept4" : YES 
+Checking for function "clock_adjtime" : YES 
+Checking for function "dup3" : YES 
+Checking for function "fallocate" : YES 
+Checking for function "posix_fallocate" : YES 
+Checking for function "sched_getcpu" : NO 
+Checking for function "posix_memalign" : YES 
+Checking for function "_aligned_malloc" : NO 
+Checking for function "valloc" : YES 
+Checking for function "memalign" : YES 
+Checking for function "ppoll" : YES 
+Checking for function "preadv" : YES 
+Checking for function "pthread_fchdir_np" : NO 
+Checking for function "sendfile" : YES 
+Checking for function "setns" : YES 
+Checking for function "unshare" : YES 
+Checking for function "syncfs" : YES 
+Checking for function "sync_file_range" : YES 
+Checking for function "timerfd_create" : YES 
+Checking for function "getloadavg" : YES 
+Checking for function "htonll" : NO 
+Checking for function "copy_file_range" : YES 
+Checking for function "getifaddrs" : YES 
+Checking for function "openpty" with dependency -lutil: YES 
+Checking for function "strchrnul" : YES 
+Checking for function "system" : YES 
+Checking for function "rbd_namespace_exists" with dependencies -lrbd, -lrados: YES 
+Header "sys/inotify.h" has symbol "inotify_init1" : YES 
+Checking for function "inotify_init1" : YES 
+Header "linux/blkzoned.h" has symbol "BLKOPENZONE" : YES 
+Header "linux/falloc.h" has symbol "FALLOC_FL_PUNCH_HOLE" : YES 
+Header "linux/falloc.h" has symbol "FALLOC_FL_KEEP_SIZE" : YES 
+Header "linux/falloc.h" has symbol "FALLOC_FL_ZERO_RANGE" : YES 
+Has header "linux/fiemap.h" : YES 
+Header "linux/fs.h" has symbol "FS_IOC_FIEMAP" : YES 
+Header "sched.h" has symbol "getcpu" : YES 
+Checking for function "getrandom" : YES 
+Header "sys/random.h" has symbol "GRND_NONBLOCK" : YES 
+Header "sys/prctl.h" has symbol "PR_SET_TIMERSLACK" : YES 
+Header "linux/rtnetlink.h" has symbol "IFLA_PROTO_DOWN" : YES 
+Header "sys/sysmacros.h" has symbol "makedev" : YES 
+Header "getopt.h" has symbol "optreset" : NO 
+Header "netinet/in.h" has symbol "IPPROTO_MPTCP" : YES 
+Header "libaio.h" has symbol "io_prep_pwritev2" : YES 
+Header "liburing.h" has symbol "io_uring_prep_writev2" : YES 
+Header "liburing.h" has symbol "io_uring_cq_has_overflow" : YES 
+Header "netinet/tcp.h" has symbol "TCP_KEEPCNT" : YES 
+Header "netinet/tcp.h" has symbol "TCP_KEEPIDLE" : YES 
+Header "netinet/tcp.h" has symbol "TCP_KEEPINTVL" : YES 
+Checking whether type "struct sigevent" has member "sigev_notify_thread_id" : NO 
+Checking whether type "struct stat" has member "st_atim" : YES 
+Checking whether type "struct blk_zone" has member "capacity" : YES 
+Checking for type "struct iovec" : YES 
+Checking for type "struct utmpx" : YES 
+Checking for type "struct mmsghdr" : YES 
+Header "asm/hwprobe.h" has symbol "RISCV_HWPROBE_EXT_ZBA" : NO 
+Header "linux/vm_sockets.h" has symbol "AF_VSOCK" : YES 
+Checking for function "spice_qxl_gl_scanout2" with dependency spice-server: NO 
+Program scripts/minikconf.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/minikconf.py)
+Configuring ppc-softmmu-config-target.h using configuration
+Configuring ppc-softmmu-config-devices.mak with command
+Reading depfile: /data/vms/sandbox/aix432/build/qemu/build-ppc/meson-private/ppc-softmmu-config-devices.mak.d
+Configuring ppc-softmmu-config-devices.h using configuration
+Program scripts/make-config-poison.sh found: YES (/data/vms/sandbox/aix432/build/qemu/scripts/make-config-poison.sh)
+
+Executing subproject libvhost-user 
+
+libvhost-user| Project name: libvhost-user
+libvhost-user| Project version: undefined
+libvhost-user| C compiler for the host machine: cc -m64 (gcc 14.2.0 "cc (Debian 14.2.0-19) 14.2.0")
+libvhost-user| C linker for the host machine: cc -m64 ld.bfd 2.44
+libvhost-user| Compiler for C supports arguments -Wsign-compare: YES
+libvhost-user| Compiler for C supports arguments -Wdeclaration-after-statement: YES
+libvhost-user| Compiler for C supports arguments -Wstrict-aliasing: YES
+libvhost-user| Dependency threads found: YES unknown (cached)
+libvhost-user| Dependency glib-2.0 found: YES 2.84.4 (overridden)
+libvhost-user| Build targets in project: 4
+libvhost-user| Subproject libvhost-user finished.
+
+
+Executing subproject libvduse 
+
+libvduse| Project name: libvduse
+libvduse| Project version: undefined
+libvduse| C compiler for the host machine: cc -m64 (gcc 14.2.0 "cc (Debian 14.2.0-19) 14.2.0")
+libvduse| C linker for the host machine: cc -m64 ld.bfd 2.44
+libvduse| Compiler for C supports arguments -Wsign-compare: YES (cached)
+libvduse| Compiler for C supports arguments -Wdeclaration-after-statement: YES (cached)
+Initialized empty Git repository in /data/vms/sandbox/aix432/build/qemu/subprojects/keycodemapdb/.git/
+From https://gitlab.com/qemu-project/keycodemapdb
+ * branch            f5772a62ec52591ff6870b7e8ef32482371f22c6 -> FETCH_HEAD
+HEAD is now at f5772a6 Add Qemu qcode support for F13 to F24
+Initialized empty Git repository in /data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-softfloat-3/.git/
+From https://gitlab.com/qemu-project/berkeley-softfloat-3
+ * branch            b64af41c3276f97f0e181920400ee056b9c88037 -> FETCH_HEAD
+HEAD is now at b64af41 Fix typo in function 'softfloat_propagateNaNF128M' for RISC-V.
+Initialized empty Git repository in /data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-testfloat-3/.git/
+From https://gitlab.com/qemu-project/berkeley-testfloat-3
+ * branch            e7af9751d9f9fd3b47911f51a5cfd08af256a9ab -> FETCH_HEAD
+HEAD is now at e7af975 Fix -Wreturn-type errors in fNNRandom
+libvduse| Compiler for C supports arguments -Wstrict-aliasing: YES (cached)
+libvduse| Build targets in project: 5
+libvduse| Subproject libvduse finished.
+
+Configuring config-host.h using configuration
+Configuring run using configuration
+Program scripts/hxtool found: YES (/data/vms/sandbox/aix432/build/qemu/scripts/hxtool)
+Program scripts/shaderinclude.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/shaderinclude.py)
+Program scripts/qapi-gen.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/qapi-gen.py)
+Program scripts/qemu-version.sh found: YES (/data/vms/sandbox/aix432/build/qemu/scripts/qemu-version.sh)
+
+Executing subproject keycodemapdb 
+
+keycodemapdb| Project name: keycodemapdb
+keycodemapdb| Project version: undefined
+keycodemapdb| Program tools/keymap-gen found: YES (/data/vms/sandbox/aix432/build/qemu/subprojects/keycodemapdb/tools/keymap-gen)
+keycodemapdb| Build targets in project: 443
+keycodemapdb| Subproject keycodemapdb finished.
+
+Program scripts/decodetree.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/decodetree.py)
+Program ../scripts/feature_to_c.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/gdbstub/../scripts/feature_to_c.py)
+Program ../scripts/modules/module_block.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/block/../scripts/modules/module_block.py)
+Program ../scripts/block-coroutine-wrapper.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/block/../scripts/block-coroutine-wrapper.py)
+Configuring qemu-plugin.symbols with command
+Program scripts/modinfo-collect.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/modinfo-collect.py)
+Program scripts/modinfo-generate.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/modinfo-generate.py)
+Program nm found: YES
+Program scripts/undefsym.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/undefsym.py)
+Program scripts/rust/rust_root_crate.sh found: YES (/data/vms/sandbox/aix432/build/qemu/scripts/rust/rust_root_crate.sh)
+Program dtc found: NO
+Program /data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/sphinx-build found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/sphinx-build)
+../docs/meson.build:73: WARNING: Project targets '>=1.5.0' but uses feature deprecated since '0.60.0': install_subdir with empty directory. It worked by accident and is buggy. Use install_emptydir instead.
+Program /data/vms/sandbox/aix432/build/qemu/scripts/decodetree.py found: YES (/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/decodetree.py)
+
+Executing subproject berkeley-softfloat-3 
+
+berkeley-softfloat-3| Project name: berkeley-softfloat-3
+berkeley-softfloat-3| Project version: undefined
+berkeley-softfloat-3| C compiler for the host machine: cc -m64 (gcc 14.2.0 "cc (Debian 14.2.0-19) 14.2.0")
+berkeley-softfloat-3| C linker for the host machine: cc -m64 ld.bfd 2.44
+berkeley-softfloat-3| Configuring platform.h using configuration
+berkeley-softfloat-3| Build targets in project: 588
+berkeley-softfloat-3| Subproject berkeley-softfloat-3 finished.
+
+
+Executing subproject berkeley-testfloat-3 
+
+berkeley-testfloat-3| Project name: berkeley-testfloat-3
+berkeley-testfloat-3| Project version: undefined
+berkeley-testfloat-3| C compiler for the host machine: cc -m64 (gcc 14.2.0 "cc (Debian 14.2.0-19) 14.2.0")
+berkeley-testfloat-3| C linker for the host machine: cc -m64 ld.bfd 2.44
+berkeley-testfloat-3| Configuring platform.h using configuration
+berkeley-testfloat-3| Compiler for C supports arguments -Wno-ignored-pragmas: NO
+berkeley-testfloat-3| Build targets in project: 590
+berkeley-testfloat-3| Subproject berkeley-testfloat-3 finished.
+
+Program diff found: YES (/usr/bin/diff)
+Program dbus-daemon found: YES (/usr/bin/dbus-daemon)
+Run-time dependency gvnc-1.0 found: NO (tried pkgconfig)
+Run-time dependency sysprof-capture-4 found: YES 48.0
+Run-time dependency glib-2.0 found: YES 2.84.4
+Program initrd-stress.sh found: YES (/data/vms/sandbox/aix432/build/qemu/tests/migration-stress/initrd-stress.sh)
+Build targets in project: 754
+WARNING: Deprecated features used:
+ * 0.60.0: {'install_subdir with empty directory'}
+
+qemu 11.0.2
+
+  Build environment
+    Build directory                 : /data/vms/sandbox/aix432/build/qemu/build-ppc
+    Source path                     : /data/vms/sandbox/aix432/build/qemu
+    Download dependencies           : YES
+
+  Directories
+    Install prefix                  : /opt/qemu-ppc
+    BIOS directory                  : share/qemu
+    firmware path                   : share/qemu-firmware
+    binary directory                : /opt/qemu-ppc/bin
+    library directory               : /opt/qemu-ppc/lib/x86_64-linux-gnu
+    module directory                : lib/x86_64-linux-gnu/qemu
+    libexec directory               : /opt/qemu-ppc/libexec
+    include directory               : /opt/qemu-ppc/include
+    config directory                : /opt/qemu-ppc/etc
+    local state directory           : /opt/qemu-ppc/var
+    Manual directory                : /opt/qemu-ppc/share/man
+    Doc directory                   : /opt/qemu-ppc/share/doc
+
+  Host binaries
+    python                          : /data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 (version: 3.13)
+    sphinx-build                    : /data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/sphinx-build
+    gdb                             : /usr/bin/gdb
+    iasl                            : NO
+    genisoimage                     : /usr/bin/genisoimage
+    smbd                            : /usr/sbin/smbd
+
+  Configurable features
+    Documentation                   : YES
+    system-mode emulation           : YES
+    user-mode emulation             : NO
+    block layer                     : YES
+    Install blobs                   : YES
+    module support                  : NO
+    fuzzing support                 : NO
+    Audio drivers                   : pa sndio oss
+    Trace backends                  : log
+    QOM debugging                   : YES
+    Relocatable install             : YES
+    vhost-kernel support            : YES
+    vhost-net support               : YES
+    vhost-user support              : YES
+    vhost-user-crypto support       : YES
+    vhost-user-blk server support   : YES
+    vhost-vdpa support              : YES
+    build guest agent               : YES
+
+  Compilation
+    host CPU                        : x86_64
+    host endianness                 : little
+    C compiler                      : cc -m64
+    Host C compiler                 : cc -m64
+    C++ compiler                    : c++ -m64
+    Objective-C compiler            : NO
+    Rust support                    : NO
+    CFLAGS                          : -g -O2
+    CXXFLAGS                        : -g -O2
+    QEMU_CFLAGS                     : -mcx16 -msse2 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-common -fwrapv -ftrivial-auto-var-init=zero -fzero-init-padding-bits=all -fzero-call-used-regs=used-gpr -fstack-protector-strong
+    QEMU_CXXFLAGS                   : -mcx16 -msse2 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -fno-strict-aliasing -fno-common -fwrapv -ftrivial-auto-var-init=zero -fzero-init-padding-bits=all -fzero-call-used-regs=used-gpr -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -fstack-protector-strong
+    QEMU_LDFLAGS                    : -fstack-protector-strong -Wl,-z,relro -Wl,-z,now
+    link-time optimization (LTO)    : NO
+    PIE                             : YES
+    static build                    : NO
+    malloc trim support             : YES
+    membarrier                      : NO
+    debug graph lock                : NO
+    debug stack usage               : NO
+    mutex debugging                 : NO
+    memory allocator                : system
+    avx2 optimization               : YES
+    avx512bw optimization           : YES
+    gcov                            : NO
+    thread sanitizer                : NO
+    CFI support                     : NO
+    strip binaries                  : NO
+    sparse                          : NO
+    mingw32 support                 : NO
+
+  Targets and accelerators
+    KVM support                     : NO
+    Nitro support                   : NO
+    HVF support                     : NO
+    WHPX support                    : NO
+    NVMM support                    : NO
+    MSHV support                    : NO
+    Xen support                     : NO
+    Xen emulation                   : NO
+    TCG support                     : YES
+    TCG backend                     : native (x86_64)
+    TCG plugins                     : YES
+    TCG debug enabled               : NO
+    target list                     : ppc-softmmu
+    default devices                 : YES
+    out of process emulation        : YES
+    vfio-user server                : NO
+
+  Block layer support
+    coroutine backend               : ucontext
+    coroutine pool                  : YES
+    Block whitelist (rw)            : 
+    Block whitelist (ro)            : 
+    Use block whitelist in tools    : NO
+    VirtFS (9P) support             : YES
+    replication support             : YES
+    bochs support                   : YES
+    cloop support                   : YES
+    dmg support                     : YES
+    qcow v1 support                 : YES
+    vdi support                     : YES
+    vhdx support                    : YES
+    vmdk support                    : YES
+    vpc support                     : YES
+    vvfat support                   : YES
+    qed support                     : YES
+    parallels support               : YES
+    FUSE exports                    : YES 3.17.2
+    VDUSE block exports             : YES
+
+  Crypto
+    TLS priority                    : NORMAL
+    GNUTLS support                  : YES 3.8.9
+      GNUTLS bug 1717 workaround    : NO
+    libgcrypt                       : NO
+    nettle                          : NO
+    SM4 ALG support                 : NO
+    SM3 ALG support                 : NO
+    AF_ALG support                  : NO
+    rng-none                        : NO
+    Linux keyring                   : YES
+    Linux keyutils                  : NO
+
+  User interface
+    D-Bus display                   : YES
+    SDL support                     : YES 2.32.4
+    SDL image support               : NO
+    GTK support                     : NO
+    pixman                          : YES 0.44.0
+    VTE support                     : NO
+    PNG support                     : YES 1.6.48
+    VNC support                     : YES
+    VNC SASL support                : YES
+    VNC JPEG support                : YES 2.1.5
+    spice protocol support          : YES 0.14.3
+      spice server support          : YES 0.15.2
+    curses support                  : NO
+    brlapi support                  : NO
+
+  Graphics backends
+    VirGL support                   : YES 1.1.0
+    Rutabaga support                : NO
+
+  Audio backends
+    OSS support                     : YES
+    sndio support                   : YES 1.10.0
+    ALSA support                    : YES 1.2.14
+    PulseAudio support              : YES 17.0
+    PipeWire support                : YES 1.4.2
+    JACK support                    : NO
+
+  Network backends
+    AF_XDP support                  : NO
+    passt support                   : YES
+    slirp support                   : YES 4.8.0
+    vde support                     : NO
+    netmap support                  : NO
+    l2tpv3 support                  : YES
+
+  Dependencies
+    libtasn1                        : YES 4.20.0
+    PAM                             : NO
+    iconv support                   : YES
+    blkio support                   : NO
+    curl support                    : YES 8.14.1
+    Multipath support               : NO
+    Linux AIO support               : YES
+    Linux io_uring support          : YES 2.9
+    ATTR/XATTR support              : YES
+    RDMA support                    : NO
+    fdt support                     : YES
+    libcap-ng support               : YES
+    bpf support                     : NO
+    rbd support                     : YES
+    smartcard support               : NO
+    U2F support                     : NO
+    libusb                          : YES 1.0.28
+    usb net redir                   : YES 0.15.0
+    OpenGL support (epoxy)          : NO
+    GBM                             : YES 25.0.7-2+deb13u1
+    libiscsi support                : YES 1.20.0
+    libnfs support                  : NO
+    seccomp support                 : YES 2.6.0
+    GlusterFS support               : NO
+    hv-balloon support              : YES
+    TPM support                     : YES
+    IGVM support                    : NO
+    libssh support                  : NO
+    lzo support                     : YES
+    snappy support                  : NO
+    bzip2 support                   : YES
+    lzfse support                   : NO
+    zstd support                    : YES 1.5.7
+    Query Processing Library support: NO
+    UADK Library support            : NO
+    qatzip support                  : NO
+    NUMA host support               : YES
+    capstone                        : NO
+    libpmem support                 : NO
+    libdaxctl support               : NO
+    libcbor support                 : NO
+    libudev                         : YES 257
+    FUSE lseek                      : YES
+    selinux                         : YES 3.8.1
+    libdw                           : NO
+    valgrind                        : NO
+
+  Subprojects
+    berkeley-softfloat-3            : YES
+    berkeley-testfloat-3            : YES
+    keycodemapdb                    : YES
+    libvduse                        : YES
+    libvhost-user                   : YES
+
+  User defined options
+    Native files                    : config-meson.cross
+    dbus_display                    : enabled
+    docs                            : enabled
+    gdb                             : /usr/bin/gdb
+    opengl                          : disabled
+    plugins                         : true
+    prefix                          : /opt/qemu-ppc
+    slirp                           : enabled
+    tools                           : disabled
+    werror                          : false
+
+Found ninja-1.12.1 at /usr/bin/ninja
+Running postconf script '/data/vms/sandbox/aix432/build/qemu/build-ppc/pyvenv/bin/python3 /data/vms/sandbox/aix432/build/qemu/scripts/symlink-install-tree.py'

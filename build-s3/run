@@ -1,0 +1,4 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+exec /data/vms/sandbox/aix432/build/qemu/build-s3/pyvenv/bin/meson devenv -C /data/vms/sandbox/aix432/build/qemu/build-s3 -w "$PWD" "$@"

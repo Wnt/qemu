@@ -1,0 +1,2206 @@
+[
+  {
+    "name": "threads",
+    "type": "system",
+    "version": "unknown",
+    "compile_args": [
+      "-pthread"
+    ],
+    "link_args": [
+      "-pthread"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "threads"
+    ]
+  },
+  {
+    "name": "glib-2.0",
+    "type": "pkgconfig",
+    "version": "2.84.4",
+    "compile_args": [
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
+      "-pthread"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libglib-2.0.a",
+      "/usr/lib/gcc/x86_64-linux-gnu/14/libatomic.a",
+      "-lm",
+      "-pthread",
+      "/usr/lib/x86_64-linux-gnu/libsysprof-capture-4.a",
+      "-pthread",
+      "/usr/lib/x86_64-linux-gnu/libpcre2-8.a"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "glib_pc",
+      "glib_static"
+    ]
+  },
+  {
+    "name": "gmodule-no-export-2.0",
+    "type": "pkgconfig",
+    "version": "2.84.4",
+    "compile_args": [
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
+      "-pthread"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libgmodule-2.0.so",
+      "-pthread",
+      "/usr/lib/x86_64-linux-gnu/libglib-2.0.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "gmodule"
+    ]
+  },
+  {
+    "name": "gio-2.0",
+    "type": "pkgconfig",
+    "version": "2.84.4",
+    "compile_args": [
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
+      "-I/usr/include/libmount",
+      "-I/usr/include/blkid",
+      "-pthread"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libgio-2.0.so",
+      "/usr/lib/x86_64-linux-gnu/libgobject-2.0.so",
+      "/usr/lib/x86_64-linux-gnu/libglib-2.0.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": []
+  },
+  {
+    "name": "gio-unix-2.0",
+    "type": "pkgconfig",
+    "version": "2.84.4",
+    "compile_args": [
+      "-I/usr/include/gio-unix-2.0",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
+      "-I/usr/include/libmount",
+      "-I/usr/include/blkid",
+      "-pthread"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libgio-2.0.so",
+      "/usr/lib/x86_64-linux-gnu/libgobject-2.0.so",
+      "/usr/lib/x86_64-linux-gnu/libglib-2.0.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "gio_unix"
+    ]
+  },
+  {
+    "name": "pixman-1",
+    "type": "pkgconfig",
+    "version": "0.44.0",
+    "compile_args": [
+      "-I/usr/include/pixman-1"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libpixman-1.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "pixman"
+    ]
+  },
+  {
+    "name": "zlib",
+    "type": "pkgconfig",
+    "version": "1.3.1",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libz.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "zlib"
+    ]
+  },
+  {
+    "name": "liburing",
+    "type": "pkgconfig",
+    "version": "2.9",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/liburing.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "linux_io_uring"
+    ]
+  },
+  {
+    "name": "libseccomp",
+    "type": "pkgconfig",
+    "version": "2.6.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libseccomp.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "seccomp"
+    ]
+  },
+  {
+    "name": "xkbcommon",
+    "type": "pkgconfig",
+    "version": "1.7.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libxkbcommon.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "xkbcommon"
+    ]
+  },
+  {
+    "name": "slirp",
+    "type": "pkgconfig",
+    "version": "4.8.0",
+    "compile_args": [
+      "-I/usr/include/slirp",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
+      "-pthread"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libslirp.so",
+      "/usr/lib/x86_64-linux-gnu/libglib-2.0.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "slirp"
+    ]
+  },
+  {
+    "name": "libpulse",
+    "type": "pkgconfig",
+    "version": "17.0",
+    "compile_args": [
+      "-D_REENTRANT"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libpulse.so",
+      "-pthread"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "pulse"
+    ]
+  },
+  {
+    "name": "alsa",
+    "type": "pkgconfig",
+    "version": "1.2.14",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libasound.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "alsa"
+    ]
+  },
+  {
+    "name": "libpipewire-0.3",
+    "type": "pkgconfig",
+    "version": "1.4.2",
+    "compile_args": [
+      "-I/usr/include/pipewire-0.3",
+      "-I/usr/include/spa-0.2",
+      "-D_REENTRANT"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libpipewire-0.3.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "pipewire"
+    ]
+  },
+  {
+    "name": "sndio",
+    "type": "pkgconfig",
+    "version": "1.10.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libsndio.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "sndio"
+    ]
+  },
+  {
+    "name": "spice-protocol",
+    "type": "pkgconfig",
+    "version": "0.14.3",
+    "compile_args": [
+      "-I/usr/include/spice-1"
+    ],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "spice_protocol"
+    ]
+  },
+  {
+    "name": "spice-server",
+    "type": "pkgconfig",
+    "version": "0.15.2",
+    "compile_args": [
+      "-I/usr/include/spice-server",
+      "-I/usr/include/spice-1"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libspice-server.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "spice",
+      "spice_headers",
+      "dep"
+    ]
+  },
+  {
+    "name": "libiscsi",
+    "type": "pkgconfig",
+    "version": "1.20.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libiscsi.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libiscsi"
+    ]
+  },
+  {
+    "name": "libzstd",
+    "type": "pkgconfig",
+    "version": "1.5.7",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libzstd.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "zstd"
+    ]
+  },
+  {
+    "name": "virglrenderer",
+    "type": "pkgconfig",
+    "version": "1.1.0",
+    "compile_args": [
+      "-I/usr/include/virgl"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libvirglrenderer.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "virgl"
+    ]
+  },
+  {
+    "name": "libcurl",
+    "type": "pkgconfig",
+    "version": "8.14.1",
+    "compile_args": [
+      "-I/usr/include/x86_64-linux-gnu",
+      "-isystem",
+      "/usr/include/mit-krb5",
+      "-I/usr/include/p11-kit-1"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libcurl.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "curl"
+    ]
+  },
+  {
+    "name": "libudev",
+    "type": "pkgconfig",
+    "version": "257",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libudev.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libudev"
+    ]
+  },
+  {
+    "name": "sdl2",
+    "type": "pkgconfig",
+    "version": "2.32.4",
+    "compile_args": [
+      "-I/usr/include/SDL2",
+      "-D_REENTRANT"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libSDL2.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "sdl"
+    ]
+  },
+  {
+    "name": "gbm",
+    "type": "pkgconfig",
+    "version": "25.0.7-2+deb13u1",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libgbm.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "gbm"
+    ]
+  },
+  {
+    "name": "gnutls",
+    "type": "pkgconfig",
+    "version": "3.8.9",
+    "compile_args": [
+      "-I/usr/include/p11-kit-1"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libgnutls.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "gnutls"
+    ]
+  },
+  {
+    "name": "gmp",
+    "type": "pkgconfig",
+    "version": "6.3.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libgmp.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "gmp"
+    ]
+  },
+  {
+    "name": "x11",
+    "type": "pkgconfig",
+    "version": "1.8.12",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libX11.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "x11"
+    ]
+  },
+  {
+    "name": "libpng",
+    "type": "pkgconfig",
+    "version": "1.6.48",
+    "compile_args": [
+      "-I/usr/include/libpng16"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libpng16.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "png"
+    ]
+  },
+  {
+    "name": "libjpeg",
+    "type": "pkgconfig",
+    "version": "2.1.5",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libjpeg.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "jpeg"
+    ]
+  },
+  {
+    "name": "libusbredirparser-0.5",
+    "type": "pkgconfig",
+    "version": "0.15.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libusbredirparser.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "usbredir"
+    ]
+  },
+  {
+    "name": "libusb-1.0",
+    "type": "pkgconfig",
+    "version": "1.0.28",
+    "compile_args": [
+      "-I/usr/include/libusb-1.0"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libusb-1.0.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libusb"
+    ]
+  },
+  {
+    "name": "libtasn1",
+    "type": "pkgconfig",
+    "version": "4.20.0",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libtasn1.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "tasn1"
+    ]
+  },
+  {
+    "name": "libselinux",
+    "type": "pkgconfig",
+    "version": "3.8.1",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libselinux.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "selinux"
+    ]
+  },
+  {
+    "name": "fuse3",
+    "type": "pkgconfig",
+    "version": "3.17.2",
+    "compile_args": [
+      "-I/usr/include/fuse3"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libfuse3.so",
+      "-lpthread"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "fuse"
+    ]
+  },
+  {
+    "name": "sysprof-capture-4",
+    "type": "pkgconfig",
+    "version": "48.0",
+    "compile_args": [
+      "-I/usr/include/sysprof-6",
+      "-pthread"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libsysprof-capture-4.a",
+      "-pthread"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "sysprof"
+    ]
+  },
+  {
+    "name": "m",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lm"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libm"
+    ]
+  },
+  {
+    "name": "util",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lutil"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "util"
+    ]
+  },
+  {
+    "name": "dep308635574747616641352730163105038205991",
+    "type": "internal",
+    "version": "2.84.4",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "glib-2.0",
+      "gmodule-no-export-2.0"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "glib"
+    ]
+  },
+  {
+    "name": "dep86008085593141824933215018716150911640",
+    "type": "internal",
+    "version": "2.84.4",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "gio-2.0",
+      "gio-unix-2.0"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "gio"
+    ]
+  },
+  {
+    "name": "aio",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-laio"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libaio"
+    ]
+  },
+  {
+    "name": "dep14657596679720346503033105485107631758",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libattr"
+    ]
+  },
+  {
+    "name": "cap-ng",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lcap-ng"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libcap_ng"
+    ]
+  },
+  {
+    "name": "dep135715657793883074279679746492133375248",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep308635574747616641352730163105038205991"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "iconv"
+    ]
+  },
+  {
+    "name": "dep62046701593917107125331534438109430367",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "rbd",
+      "rados"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "rbd"
+    ]
+  },
+  {
+    "name": "rados",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lrados"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "librados"
+    ]
+  },
+  {
+    "name": "rbd",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lrbd"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "librbd"
+    ]
+  },
+  {
+    "name": "bz2",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lbz2"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "libbzip2"
+    ]
+  },
+  {
+    "name": "dep240944025802183079613351564492038887405",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "oss"
+    ]
+  },
+  {
+    "name": "dep28421015691789072410093425203043917325",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "vnc"
+    ]
+  },
+  {
+    "name": "dep192027141992973799820525132540284616553",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [
+      "-DSTRUCT_IOVEC_DEFINED"
+    ],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "sasl2"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "sasl"
+    ]
+  },
+  {
+    "name": "lzo2",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-llzo2"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "lzo"
+    ]
+  },
+  {
+    "name": "numa",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lnuma"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "numa"
+    ]
+  },
+  {
+    "name": "fdt",
+    "type": "library",
+    "version": "unknown",
+    "compile_args": [],
+    "link_args": [
+      "-lfdt"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "fdt"
+    ]
+  },
+  {
+    "name": "dep218115623074016484045365057042941352828",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "fuse_lseek"
+    ]
+  },
+  {
+    "name": "dep269144814443763545632879138428288170337",
+    "type": "internal",
+    "version": "undefined",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/libvhost-user/.",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/libvhost-user/."
+    ],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "glib-2.0"
+    ],
+    "depends": [
+      "7fa812e@@vhost-user-glib@sta"
+    ],
+    "meson_variables": [
+      "vhost_user"
+    ]
+  },
+  {
+    "name": "dep228610863070653250109217572112327023209",
+    "type": "internal",
+    "version": "undefined",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/libvduse/.",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/libvduse/."
+    ],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [
+      "5893b28@@vduse@sta"
+    ],
+    "meson_variables": [
+      "libvduse"
+    ]
+  },
+  {
+    "name": "dep288527073238811376504206168274500107707",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [
+      "dbus-display1.h"
+    ],
+    "extra_files": [],
+    "dependencies": [
+      "dep86008085593141824933215018716150911640"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "dbus_display1_h"
+    ]
+  },
+  {
+    "name": "dep288969968431548429812732273939103645819",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "qom"
+    ]
+  },
+  {
+    "name": "dep160697923703639599809911608839849507709",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep288969968431548429812732273939103645819"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "event_loop_base"
+    ]
+  },
+  {
+    "name": "dep27868971963263263535591010700867208798",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [
+      "config-poison.h",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/config-host.h",
+      "qemu-version.h",
+      "qemu-options.def",
+      "qemu-img-cmds.h",
+      "hmp-commands.h",
+      "hmp-commands-info.h",
+      "qapi-introspect.h",
+      "qapi-types.h",
+      "qapi-visit.h",
+      "qapi-commands.h",
+      "qapi-init-commands.h",
+      "qapi-events.h",
+      "qapi-emit-events.h",
+      "qapi-builtin-types.h",
+      "qapi-builtin-visit.h",
+      "qapi-types-authz.h",
+      "qapi-visit-authz.h",
+      "qapi-events-authz.h",
+      "qapi-commands-authz.h",
+      "qapi-types-block.h",
+      "qapi-visit-block.h",
+      "qapi-events-block.h",
+      "qapi-commands-block.h",
+      "qapi-types-block-core.h",
+      "qapi-visit-block-core.h",
+      "qapi-events-block-core.h",
+      "qapi-commands-block-core.h",
+      "qapi-types-block-export.h",
+      "qapi-visit-block-export.h",
+      "qapi-events-block-export.h",
+      "qapi-commands-block-export.h",
+      "qapi-types-char.h",
+      "qapi-visit-char.h",
+      "qapi-events-char.h",
+      "qapi-commands-char.h",
+      "qapi-types-common.h",
+      "qapi-visit-common.h",
+      "qapi-events-common.h",
+      "qapi-commands-common.h",
+      "qapi-types-compat.h",
+      "qapi-visit-compat.h",
+      "qapi-events-compat.h",
+      "qapi-commands-compat.h",
+      "qapi-types-control.h",
+      "qapi-visit-control.h",
+      "qapi-events-control.h",
+      "qapi-commands-control.h",
+      "qapi-types-crypto.h",
+      "qapi-visit-crypto.h",
+      "qapi-events-crypto.h",
+      "qapi-commands-crypto.h",
+      "qapi-types-cxl.h",
+      "qapi-visit-cxl.h",
+      "qapi-events-cxl.h",
+      "qapi-commands-cxl.h",
+      "qapi-types-dump.h",
+      "qapi-visit-dump.h",
+      "qapi-events-dump.h",
+      "qapi-commands-dump.h",
+      "qapi-types-ebpf.h",
+      "qapi-visit-ebpf.h",
+      "qapi-events-ebpf.h",
+      "qapi-commands-ebpf.h",
+      "qapi-types-error.h",
+      "qapi-visit-error.h",
+      "qapi-events-error.h",
+      "qapi-commands-error.h",
+      "qapi-types-introspect.h",
+      "qapi-visit-introspect.h",
+      "qapi-events-introspect.h",
+      "qapi-commands-introspect.h",
+      "qapi-types-job.h",
+      "qapi-visit-job.h",
+      "qapi-events-job.h",
+      "qapi-commands-job.h",
+      "qapi-types-machine-common.h",
+      "qapi-visit-machine-common.h",
+      "qapi-events-machine-common.h",
+      "qapi-commands-machine-common.h",
+      "qapi-types-machine.h",
+      "qapi-visit-machine.h",
+      "qapi-events-machine.h",
+      "qapi-commands-machine.h",
+      "qapi-types-machine-s390x.h",
+      "qapi-visit-machine-s390x.h",
+      "qapi-events-machine-s390x.h",
+      "qapi-commands-machine-s390x.h",
+      "qapi-types-migration.h",
+      "qapi-visit-migration.h",
+      "qapi-events-migration.h",
+      "qapi-commands-migration.h",
+      "qapi-types-misc.h",
+      "qapi-visit-misc.h",
+      "qapi-events-misc.h",
+      "qapi-commands-misc.h",
+      "qapi-types-net.h",
+      "qapi-visit-net.h",
+      "qapi-events-net.h",
+      "qapi-commands-net.h",
+      "qapi-types-pragma.h",
+      "qapi-visit-pragma.h",
+      "qapi-events-pragma.h",
+      "qapi-commands-pragma.h",
+      "qapi-types-qom.h",
+      "qapi-visit-qom.h",
+      "qapi-events-qom.h",
+      "qapi-commands-qom.h",
+      "qapi-types-replay.h",
+      "qapi-visit-replay.h",
+      "qapi-events-replay.h",
+      "qapi-commands-replay.h",
+      "qapi-types-run-state.h",
+      "qapi-visit-run-state.h",
+      "qapi-events-run-state.h",
+      "qapi-commands-run-state.h",
+      "qapi-types-sockets.h",
+      "qapi-visit-sockets.h",
+      "qapi-events-sockets.h",
+      "qapi-commands-sockets.h",
+      "qapi-types-stats.h",
+      "qapi-visit-stats.h",
+      "qapi-events-stats.h",
+      "qapi-commands-stats.h",
+      "qapi-types-trace.h",
+      "qapi-visit-trace.h",
+      "qapi-events-trace.h",
+      "qapi-commands-trace.h",
+      "qapi-types-transaction.h",
+      "qapi-visit-transaction.h",
+      "qapi-events-transaction.h",
+      "qapi-commands-transaction.h",
+      "qapi-types-vfio.h",
+      "qapi-visit-vfio.h",
+      "qapi-events-vfio.h",
+      "qapi-commands-vfio.h",
+      "qapi-types-virtio.h",
+      "qapi-visit-virtio.h",
+      "qapi-events-virtio.h",
+      "qapi-commands-virtio.h",
+      "qapi-types-yank.h",
+      "qapi-visit-yank.h",
+      "qapi-events-yank.h",
+      "qapi-commands-yank.h",
+      "qapi-types-accelerator.h",
+      "qapi-visit-accelerator.h",
+      "qapi-events-accelerator.h",
+      "qapi-commands-accelerator.h",
+      "qapi-types-acpi.h",
+      "qapi-visit-acpi.h",
+      "qapi-events-acpi.h",
+      "qapi-commands-acpi.h",
+      "qapi-types-acpi-hest.h",
+      "qapi-visit-acpi-hest.h",
+      "qapi-events-acpi-hest.h",
+      "qapi-commands-acpi-hest.h",
+      "qapi-types-audio.h",
+      "qapi-visit-audio.h",
+      "qapi-events-audio.h",
+      "qapi-commands-audio.h",
+      "qapi-types-cryptodev.h",
+      "qapi-visit-cryptodev.h",
+      "qapi-events-cryptodev.h",
+      "qapi-commands-cryptodev.h",
+      "qapi-types-qdev.h",
+      "qapi-visit-qdev.h",
+      "qapi-events-qdev.h",
+      "qapi-commands-qdev.h",
+      "qapi-types-pci.h",
+      "qapi-visit-pci.h",
+      "qapi-events-pci.h",
+      "qapi-commands-pci.h",
+      "qapi-types-rocker.h",
+      "qapi-visit-rocker.h",
+      "qapi-events-rocker.h",
+      "qapi-commands-rocker.h",
+      "qapi-types-misc-arm.h",
+      "qapi-visit-misc-arm.h",
+      "qapi-events-misc-arm.h",
+      "qapi-commands-misc-arm.h",
+      "qapi-types-misc-i386.h",
+      "qapi-visit-misc-i386.h",
+      "qapi-events-misc-i386.h",
+      "qapi-commands-misc-i386.h",
+      "qapi-types-tpm.h",
+      "qapi-visit-tpm.h",
+      "qapi-events-tpm.h",
+      "qapi-commands-tpm.h",
+      "qapi-types-uefi.h",
+      "qapi-visit-uefi.h",
+      "qapi-events-uefi.h",
+      "qapi-commands-uefi.h",
+      "qapi-types-ui.h",
+      "qapi-visit-ui.h",
+      "qapi-events-ui.h",
+      "qapi-commands-ui.h",
+      "trace-root.h",
+      "trace-crypto.h",
+      "trace-qapi.h",
+      "trace-qom.h",
+      "trace-monitor.h",
+      "trace-util.h",
+      "trace-gdbstub.h",
+      "trace-authz.h",
+      "trace-block.h",
+      "trace-chardev.h",
+      "trace-io.h",
+      "trace-nbd.h",
+      "trace-scsi.h",
+      "trace-accel_hvf.h",
+      "trace-accel_kvm.h",
+      "trace-accel_mshv.h",
+      "trace-accel_nitro.h",
+      "trace-audio.h",
+      "trace-backends.h",
+      "trace-backends_tpm.h",
+      "trace-ebpf.h",
+      "trace-hw_9pfs.h",
+      "trace-hw_acpi.h",
+      "trace-hw_adc.h",
+      "trace-hw_alpha.h",
+      "trace-hw_arm.h",
+      "trace-hw_audio.h",
+      "trace-hw_block.h",
+      "trace-hw_char.h",
+      "trace-hw_display.h",
+      "trace-hw_dma.h",
+      "trace-hw_fsi.h",
+      "trace-hw_hyperv.h",
+      "trace-hw_i2c.h",
+      "trace-hw_i3c.h",
+      "trace-hw_i386.h",
+      "trace-hw_i386_xen.h",
+      "trace-hw_i386_kvm.h",
+      "trace-hw_ide.h",
+      "trace-hw_input.h",
+      "trace-hw_intc.h",
+      "trace-hw_isa.h",
+      "trace-hw_mem.h",
+      "trace-hw_mips.h",
+      "trace-hw_misc.h",
+      "trace-hw_misc_macio.h",
+      "trace-hw_net.h",
+      "trace-hw_net_can.h",
+      "trace-hw_nitro.h",
+      "trace-hw_nubus.h",
+      "trace-hw_nvme.h",
+      "trace-hw_nvram.h",
+      "trace-hw_pci.h",
+      "trace-hw_pci_host.h",
+      "trace-hw_ppc.h",
+      "trace-hw_rtc.h",
+      "trace-hw_riscv.h",
+      "trace-hw_s390x.h",
+      "trace-hw_scsi.h",
+      "trace-hw_sd.h",
+      "trace-hw_sensor.h",
+      "trace-hw_sh4.h",
+      "trace-hw_sparc.h",
+      "trace-hw_sparc64.h",
+      "trace-hw_ssi.h",
+      "trace-hw_timer.h",
+      "trace-hw_tpm.h",
+      "trace-hw_uefi.h",
+      "trace-hw_ufs.h",
+      "trace-hw_usb.h",
+      "trace-hw_vfio.h",
+      "trace-hw_vfio_user.h",
+      "trace-hw_virtio.h",
+      "trace-hw_vmapple.h",
+      "trace-hw_watchdog.h",
+      "trace-hw_xen.h",
+      "trace-hw_gpio.h",
+      "trace-migration.h",
+      "trace-net.h",
+      "trace-replay.h",
+      "trace-system.h",
+      "trace-ui.h",
+      "trace-hw_remote.h",
+      "trace-accel_tcg.h",
+      "trace-hw_core.h",
+      "trace-target_arm.h",
+      "trace-target_arm_hvf.h",
+      "trace-target_hppa.h",
+      "trace-target_i386.h",
+      "trace-target_i386_kvm.h",
+      "trace-target_i386_whpx.h",
+      "trace-target_loongarch.h",
+      "trace-target_mips_tcg.h",
+      "trace-target_ppc.h",
+      "trace-target_riscv.h",
+      "trace-target_s390x.h",
+      "trace-target_s390x_kvm.h",
+      "trace-target_sparc.h",
+      "trace-qapi_commands_authz_trace_events.h",
+      "trace-qapi_commands_block_trace_events.h",
+      "trace-qapi_commands_block_core_trace_events.h",
+      "trace-qapi_commands_block_export_trace_events.h",
+      "trace-qapi_commands_char_trace_events.h",
+      "trace-qapi_commands_common_trace_events.h",
+      "trace-qapi_commands_compat_trace_events.h",
+      "trace-qapi_commands_control_trace_events.h",
+      "trace-qapi_commands_crypto_trace_events.h",
+      "trace-qapi_commands_cxl_trace_events.h",
+      "trace-qapi_commands_dump_trace_events.h",
+      "trace-qapi_commands_ebpf_trace_events.h",
+      "trace-qapi_commands_error_trace_events.h",
+      "trace-qapi_commands_introspect_trace_events.h",
+      "trace-qapi_commands_job_trace_events.h",
+      "trace-qapi_commands_machine_common_trace_events.h",
+      "trace-qapi_commands_machine_trace_events.h",
+      "trace-qapi_commands_machine_s390x_trace_events.h",
+      "trace-qapi_commands_migration_trace_events.h",
+      "trace-qapi_commands_misc_trace_events.h",
+      "trace-qapi_commands_net_trace_events.h",
+      "trace-qapi_commands_pragma_trace_events.h",
+      "trace-qapi_commands_qom_trace_events.h",
+      "trace-qapi_commands_replay_trace_events.h",
+      "trace-qapi_commands_run_state_trace_events.h",
+      "trace-qapi_commands_sockets_trace_events.h",
+      "trace-qapi_commands_stats_trace_events.h",
+      "trace-qapi_commands_trace_trace_events.h",
+      "trace-qapi_commands_transaction_trace_events.h",
+      "trace-qapi_commands_vfio_trace_events.h",
+      "trace-qapi_commands_virtio_trace_events.h",
+      "trace-qapi_commands_yank_trace_events.h",
+      "trace-qapi_commands_accelerator_trace_events.h",
+      "trace-qapi_commands_acpi_trace_events.h",
+      "trace-qapi_commands_acpi_hest_trace_events.h",
+      "trace-qapi_commands_audio_trace_events.h",
+      "trace-qapi_commands_cryptodev_trace_events.h",
+      "trace-qapi_commands_qdev_trace_events.h",
+      "trace-qapi_commands_pci_trace_events.h",
+      "trace-qapi_commands_rocker_trace_events.h",
+      "trace-qapi_commands_misc_arm_trace_events.h",
+      "trace-qapi_commands_misc_i386_trace_events.h",
+      "trace-qapi_commands_tpm_trace_events.h",
+      "trace-qapi_commands_uefi_trace_events.h",
+      "trace-qapi_commands_ui_trace_events.h",
+      "input-keymap-atset1-to-qcode.c.inc",
+      "input-keymap-linux-to-qcode.c.inc",
+      "input-keymap-qcode-to-atset1.c.inc",
+      "input-keymap-qcode-to-atset2.c.inc",
+      "input-keymap-qcode-to-atset3.c.inc",
+      "input-keymap-qcode-to-linux.c.inc",
+      "input-keymap-qcode-to-qnum.c.inc",
+      "input-keymap-qcode-to-sun.c.inc",
+      "input-keymap-qnum-to-qcode.c.inc",
+      "input-keymap-usb-to-qcode.c.inc",
+      "input-keymap-win32-to-qcode.c.inc",
+      "input-keymap-x11-to-qcode.c.inc",
+      "input-keymap-xorgevdev-to-qcode.c.inc",
+      "input-keymap-xorgkbd-to-qcode.c.inc",
+      "input-keymap-xorgxquartz-to-qcode.c.inc",
+      "input-keymap-xorgxwin-to-qcode.c.inc",
+      "input-keymap-osx-to-qcode.c.inc",
+      "texture-blit-frag.h",
+      "texture-blit-vert.h",
+      "texture-blit-flip-vert.h"
+    ],
+    "extra_files": [],
+    "dependencies": [
+      "dep160697923703639599809911608839849507709"
+    ],
+    "depends": [
+      "qemuutil@sta"
+    ],
+    "meson_variables": [
+      "qemuutil"
+    ]
+  },
+  {
+    "name": "dep81192569173029128381512311931995569399",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [
+      "/data/vms/sandbox/aix432/build/qemu/plugins/../include/plugins",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/plugins/../include/plugins"
+    ],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep308635574747616641352730163105038205991"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "plugins_deps"
+    ]
+  },
+  {
+    "name": "dep75244462146143706700192701041438240618",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "qos"
+    ]
+  },
+  {
+    "name": "dep66885842773821661383445237250182518554",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep288969968431548429812732273939103645819"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "authz"
+    ]
+  },
+  {
+    "name": "dep15968285625679478991729717932466719163",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "gnutls",
+      "dep66885842773821661383445237250182518554",
+      "dep288969968431548429812732273939103645819"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "crypto"
+    ]
+  },
+  {
+    "name": "dep197314420560491736678801444789444723584",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep15968285625679478991729717932466719163",
+      "dep288969968431548429812732273939103645819"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "io"
+    ]
+  },
+  {
+    "name": "dep20355254153165808234097655309112356334",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep288969968431548429812732273939103645819",
+      "dep197314420560491736678801444789444723584"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "migration"
+    ]
+  },
+  {
+    "name": "dep191102640169783447585639738355199993555",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "libzstd",
+      "zlib",
+      "libiscsi",
+      "aio",
+      "liburing",
+      "libcurl",
+      "dep62046701593917107125331534438109430367",
+      "dep308635574747616641352730163105038205991",
+      "bz2",
+      "dep15968285625679478991729717932466719163",
+      "dep197314420560491736678801444789444723584"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "block"
+    ]
+  },
+  {
+    "name": "dep6956698118022449665725752712213075167",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "fuse3",
+      "dep228610863070653250109217572112327023209",
+      "dep191102640169783447585639738355199993555",
+      "dep160697923703639599809911608839849507709"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "blockdev"
+    ]
+  },
+  {
+    "name": "dep122370764911558256142689068340441169650",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "qmp"
+    ]
+  },
+  {
+    "name": "dep87893432721638526018209554977140607405",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "util",
+      "dep197314420560491736678801444789444723584"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "chardev"
+    ]
+  },
+  {
+    "name": "dep237791671695703302605379843982495595580",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "hwcore"
+    ]
+  },
+  {
+    "name": "dep325242968705435421813268662811524617281",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "alsa",
+      "dep240944025802183079613351564492038887405",
+      "libpulse",
+      "sdl2",
+      "sndio",
+      "libpipewire-0.3",
+      "spice-server",
+      "dep86008085593141824933215018716150911640",
+      "pixman-1",
+      "dep288527073238811376504206168274500107707",
+      "dep288969968431548429812732273939103645819"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "audio"
+    ]
+  },
+  {
+    "name": "dep332735198131924412053966070034938085716",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [
+      "config-poison.h",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/config-host.h",
+      "qemu-version.h",
+      "qemu-options.def",
+      "qemu-img-cmds.h",
+      "hmp-commands.h",
+      "hmp-commands-info.h",
+      "qapi-introspect.h",
+      "qapi-types.h",
+      "qapi-visit.h",
+      "qapi-commands.h",
+      "qapi-init-commands.h",
+      "qapi-events.h",
+      "qapi-emit-events.h",
+      "qapi-builtin-types.h",
+      "qapi-builtin-visit.h",
+      "qapi-types-authz.h",
+      "qapi-visit-authz.h",
+      "qapi-events-authz.h",
+      "qapi-commands-authz.h",
+      "qapi-types-block.h",
+      "qapi-visit-block.h",
+      "qapi-events-block.h",
+      "qapi-commands-block.h",
+      "qapi-types-block-core.h",
+      "qapi-visit-block-core.h",
+      "qapi-events-block-core.h",
+      "qapi-commands-block-core.h",
+      "qapi-types-block-export.h",
+      "qapi-visit-block-export.h",
+      "qapi-events-block-export.h",
+      "qapi-commands-block-export.h",
+      "qapi-types-char.h",
+      "qapi-visit-char.h",
+      "qapi-events-char.h",
+      "qapi-commands-char.h",
+      "qapi-types-common.h",
+      "qapi-visit-common.h",
+      "qapi-events-common.h",
+      "qapi-commands-common.h",
+      "qapi-types-compat.h",
+      "qapi-visit-compat.h",
+      "qapi-events-compat.h",
+      "qapi-commands-compat.h",
+      "qapi-types-control.h",
+      "qapi-visit-control.h",
+      "qapi-events-control.h",
+      "qapi-commands-control.h",
+      "qapi-types-crypto.h",
+      "qapi-visit-crypto.h",
+      "qapi-events-crypto.h",
+      "qapi-commands-crypto.h",
+      "qapi-types-cxl.h",
+      "qapi-visit-cxl.h",
+      "qapi-events-cxl.h",
+      "qapi-commands-cxl.h",
+      "qapi-types-dump.h",
+      "qapi-visit-dump.h",
+      "qapi-events-dump.h",
+      "qapi-commands-dump.h",
+      "qapi-types-ebpf.h",
+      "qapi-visit-ebpf.h",
+      "qapi-events-ebpf.h",
+      "qapi-commands-ebpf.h",
+      "qapi-types-error.h",
+      "qapi-visit-error.h",
+      "qapi-events-error.h",
+      "qapi-commands-error.h",
+      "qapi-types-introspect.h",
+      "qapi-visit-introspect.h",
+      "qapi-events-introspect.h",
+      "qapi-commands-introspect.h",
+      "qapi-types-job.h",
+      "qapi-visit-job.h",
+      "qapi-events-job.h",
+      "qapi-commands-job.h",
+      "qapi-types-machine-common.h",
+      "qapi-visit-machine-common.h",
+      "qapi-events-machine-common.h",
+      "qapi-commands-machine-common.h",
+      "qapi-types-machine.h",
+      "qapi-visit-machine.h",
+      "qapi-events-machine.h",
+      "qapi-commands-machine.h",
+      "qapi-types-machine-s390x.h",
+      "qapi-visit-machine-s390x.h",
+      "qapi-events-machine-s390x.h",
+      "qapi-commands-machine-s390x.h",
+      "qapi-types-migration.h",
+      "qapi-visit-migration.h",
+      "qapi-events-migration.h",
+      "qapi-commands-migration.h",
+      "qapi-types-misc.h",
+      "qapi-visit-misc.h",
+      "qapi-events-misc.h",
+      "qapi-commands-misc.h",
+      "qapi-types-net.h",
+      "qapi-visit-net.h",
+      "qapi-events-net.h",
+      "qapi-commands-net.h",
+      "qapi-types-pragma.h",
+      "qapi-visit-pragma.h",
+      "qapi-events-pragma.h",
+      "qapi-commands-pragma.h",
+      "qapi-types-qom.h",
+      "qapi-visit-qom.h",
+      "qapi-events-qom.h",
+      "qapi-commands-qom.h",
+      "qapi-types-replay.h",
+      "qapi-visit-replay.h",
+      "qapi-events-replay.h",
+      "qapi-commands-replay.h",
+      "qapi-types-run-state.h",
+      "qapi-visit-run-state.h",
+      "qapi-events-run-state.h",
+      "qapi-commands-run-state.h",
+      "qapi-types-sockets.h",
+      "qapi-visit-sockets.h",
+      "qapi-events-sockets.h",
+      "qapi-commands-sockets.h",
+      "qapi-types-stats.h",
+      "qapi-visit-stats.h",
+      "qapi-events-stats.h",
+      "qapi-commands-stats.h",
+      "qapi-types-trace.h",
+      "qapi-visit-trace.h",
+      "qapi-events-trace.h",
+      "qapi-commands-trace.h",
+      "qapi-types-transaction.h",
+      "qapi-visit-transaction.h",
+      "qapi-events-transaction.h",
+      "qapi-commands-transaction.h",
+      "qapi-types-vfio.h",
+      "qapi-visit-vfio.h",
+      "qapi-events-vfio.h",
+      "qapi-commands-vfio.h",
+      "qapi-types-virtio.h",
+      "qapi-visit-virtio.h",
+      "qapi-events-virtio.h",
+      "qapi-commands-virtio.h",
+      "qapi-types-yank.h",
+      "qapi-visit-yank.h",
+      "qapi-events-yank.h",
+      "qapi-commands-yank.h",
+      "qapi-types-accelerator.h",
+      "qapi-visit-accelerator.h",
+      "qapi-events-accelerator.h",
+      "qapi-commands-accelerator.h",
+      "qapi-types-acpi.h",
+      "qapi-visit-acpi.h",
+      "qapi-events-acpi.h",
+      "qapi-commands-acpi.h",
+      "qapi-types-acpi-hest.h",
+      "qapi-visit-acpi-hest.h",
+      "qapi-events-acpi-hest.h",
+      "qapi-commands-acpi-hest.h",
+      "qapi-types-audio.h",
+      "qapi-visit-audio.h",
+      "qapi-events-audio.h",
+      "qapi-commands-audio.h",
+      "qapi-types-cryptodev.h",
+      "qapi-visit-cryptodev.h",
+      "qapi-events-cryptodev.h",
+      "qapi-commands-cryptodev.h",
+      "qapi-types-qdev.h",
+      "qapi-visit-qdev.h",
+      "qapi-events-qdev.h",
+      "qapi-commands-qdev.h",
+      "qapi-types-pci.h",
+      "qapi-visit-pci.h",
+      "qapi-events-pci.h",
+      "qapi-commands-pci.h",
+      "qapi-types-rocker.h",
+      "qapi-visit-rocker.h",
+      "qapi-events-rocker.h",
+      "qapi-commands-rocker.h",
+      "qapi-types-misc-arm.h",
+      "qapi-visit-misc-arm.h",
+      "qapi-events-misc-arm.h",
+      "qapi-commands-misc-arm.h",
+      "qapi-types-misc-i386.h",
+      "qapi-visit-misc-i386.h",
+      "qapi-events-misc-i386.h",
+      "qapi-commands-misc-i386.h",
+      "qapi-types-tpm.h",
+      "qapi-visit-tpm.h",
+      "qapi-events-tpm.h",
+      "qapi-commands-tpm.h",
+      "qapi-types-uefi.h",
+      "qapi-visit-uefi.h",
+      "qapi-events-uefi.h",
+      "qapi-commands-uefi.h",
+      "qapi-types-ui.h",
+      "qapi-visit-ui.h",
+      "qapi-events-ui.h",
+      "qapi-commands-ui.h",
+      "trace-root.h",
+      "trace-crypto.h",
+      "trace-qapi.h",
+      "trace-qom.h",
+      "trace-monitor.h",
+      "trace-util.h",
+      "trace-gdbstub.h",
+      "trace-authz.h",
+      "trace-block.h",
+      "trace-chardev.h",
+      "trace-io.h",
+      "trace-nbd.h",
+      "trace-scsi.h",
+      "trace-accel_hvf.h",
+      "trace-accel_kvm.h",
+      "trace-accel_mshv.h",
+      "trace-accel_nitro.h",
+      "trace-audio.h",
+      "trace-backends.h",
+      "trace-backends_tpm.h",
+      "trace-ebpf.h",
+      "trace-hw_9pfs.h",
+      "trace-hw_acpi.h",
+      "trace-hw_adc.h",
+      "trace-hw_alpha.h",
+      "trace-hw_arm.h",
+      "trace-hw_audio.h",
+      "trace-hw_block.h",
+      "trace-hw_char.h",
+      "trace-hw_display.h",
+      "trace-hw_dma.h",
+      "trace-hw_fsi.h",
+      "trace-hw_hyperv.h",
+      "trace-hw_i2c.h",
+      "trace-hw_i3c.h",
+      "trace-hw_i386.h",
+      "trace-hw_i386_xen.h",
+      "trace-hw_i386_kvm.h",
+      "trace-hw_ide.h",
+      "trace-hw_input.h",
+      "trace-hw_intc.h",
+      "trace-hw_isa.h",
+      "trace-hw_mem.h",
+      "trace-hw_mips.h",
+      "trace-hw_misc.h",
+      "trace-hw_misc_macio.h",
+      "trace-hw_net.h",
+      "trace-hw_net_can.h",
+      "trace-hw_nitro.h",
+      "trace-hw_nubus.h",
+      "trace-hw_nvme.h",
+      "trace-hw_nvram.h",
+      "trace-hw_pci.h",
+      "trace-hw_pci_host.h",
+      "trace-hw_ppc.h",
+      "trace-hw_rtc.h",
+      "trace-hw_riscv.h",
+      "trace-hw_s390x.h",
+      "trace-hw_scsi.h",
+      "trace-hw_sd.h",
+      "trace-hw_sensor.h",
+      "trace-hw_sh4.h",
+      "trace-hw_sparc.h",
+      "trace-hw_sparc64.h",
+      "trace-hw_ssi.h",
+      "trace-hw_timer.h",
+      "trace-hw_tpm.h",
+      "trace-hw_uefi.h",
+      "trace-hw_ufs.h",
+      "trace-hw_usb.h",
+      "trace-hw_vfio.h",
+      "trace-hw_vfio_user.h",
+      "trace-hw_virtio.h",
+      "trace-hw_vmapple.h",
+      "trace-hw_watchdog.h",
+      "trace-hw_xen.h",
+      "trace-hw_gpio.h",
+      "trace-migration.h",
+      "trace-net.h",
+      "trace-replay.h",
+      "trace-system.h",
+      "trace-ui.h",
+      "trace-hw_remote.h",
+      "trace-accel_tcg.h",
+      "trace-hw_core.h",
+      "trace-target_arm.h",
+      "trace-target_arm_hvf.h",
+      "trace-target_hppa.h",
+      "trace-target_i386.h",
+      "trace-target_i386_kvm.h",
+      "trace-target_i386_whpx.h",
+      "trace-target_loongarch.h",
+      "trace-target_mips_tcg.h",
+      "trace-target_ppc.h",
+      "trace-target_riscv.h",
+      "trace-target_s390x.h",
+      "trace-target_s390x_kvm.h",
+      "trace-target_sparc.h",
+      "trace-qapi_commands_authz_trace_events.h",
+      "trace-qapi_commands_block_trace_events.h",
+      "trace-qapi_commands_block_core_trace_events.h",
+      "trace-qapi_commands_block_export_trace_events.h",
+      "trace-qapi_commands_char_trace_events.h",
+      "trace-qapi_commands_common_trace_events.h",
+      "trace-qapi_commands_compat_trace_events.h",
+      "trace-qapi_commands_control_trace_events.h",
+      "trace-qapi_commands_crypto_trace_events.h",
+      "trace-qapi_commands_cxl_trace_events.h",
+      "trace-qapi_commands_dump_trace_events.h",
+      "trace-qapi_commands_ebpf_trace_events.h",
+      "trace-qapi_commands_error_trace_events.h",
+      "trace-qapi_commands_introspect_trace_events.h",
+      "trace-qapi_commands_job_trace_events.h",
+      "trace-qapi_commands_machine_common_trace_events.h",
+      "trace-qapi_commands_machine_trace_events.h",
+      "trace-qapi_commands_machine_s390x_trace_events.h",
+      "trace-qapi_commands_migration_trace_events.h",
+      "trace-qapi_commands_misc_trace_events.h",
+      "trace-qapi_commands_net_trace_events.h",
+      "trace-qapi_commands_pragma_trace_events.h",
+      "trace-qapi_commands_qom_trace_events.h",
+      "trace-qapi_commands_replay_trace_events.h",
+      "trace-qapi_commands_run_state_trace_events.h",
+      "trace-qapi_commands_sockets_trace_events.h",
+      "trace-qapi_commands_stats_trace_events.h",
+      "trace-qapi_commands_trace_trace_events.h",
+      "trace-qapi_commands_transaction_trace_events.h",
+      "trace-qapi_commands_vfio_trace_events.h",
+      "trace-qapi_commands_virtio_trace_events.h",
+      "trace-qapi_commands_yank_trace_events.h",
+      "trace-qapi_commands_accelerator_trace_events.h",
+      "trace-qapi_commands_acpi_trace_events.h",
+      "trace-qapi_commands_acpi_hest_trace_events.h",
+      "trace-qapi_commands_audio_trace_events.h",
+      "trace-qapi_commands_cryptodev_trace_events.h",
+      "trace-qapi_commands_qdev_trace_events.h",
+      "trace-qapi_commands_pci_trace_events.h",
+      "trace-qapi_commands_rocker_trace_events.h",
+      "trace-qapi_commands_misc_arm_trace_events.h",
+      "trace-qapi_commands_misc_i386_trace_events.h",
+      "trace-qapi_commands_tpm_trace_events.h",
+      "trace-qapi_commands_uefi_trace_events.h",
+      "trace-qapi_commands_ui_trace_events.h",
+      "input-keymap-atset1-to-qcode.c.inc",
+      "input-keymap-linux-to-qcode.c.inc",
+      "input-keymap-qcode-to-atset1.c.inc",
+      "input-keymap-qcode-to-atset2.c.inc",
+      "input-keymap-qcode-to-atset3.c.inc",
+      "input-keymap-qcode-to-linux.c.inc",
+      "input-keymap-qcode-to-qnum.c.inc",
+      "input-keymap-qcode-to-sun.c.inc",
+      "input-keymap-qnum-to-qcode.c.inc",
+      "input-keymap-usb-to-qcode.c.inc",
+      "input-keymap-win32-to-qcode.c.inc",
+      "input-keymap-x11-to-qcode.c.inc",
+      "input-keymap-xorgevdev-to-qcode.c.inc",
+      "input-keymap-xorgkbd-to-qcode.c.inc",
+      "input-keymap-xorgxquartz-to-qcode.c.inc",
+      "input-keymap-xorgxwin-to-qcode.c.inc",
+      "input-keymap-osx-to-qcode.c.inc",
+      "texture-blit-frag.h",
+      "texture-blit-vert.h",
+      "texture-blit-flip-vert.h",
+      "qapi-builtin-types.h",
+      "qapi-builtin-visit.h",
+      "test-qapi-commands-sub-sub-module.h",
+      "test-qapi-commands.h",
+      "test-qapi-emit-events.h",
+      "test-qapi-events-sub-sub-module.h",
+      "test-qapi-events.h",
+      "test-qapi-features.h",
+      "test-qapi-init-commands.h",
+      "test-qapi-introspect.h",
+      "test-qapi-types-sub-sub-module.h",
+      "test-qapi-types.h",
+      "test-qapi-visit-sub-sub-module.h",
+      "test-qapi-visit.h",
+      "test-qapi-commands-sub-module.h",
+      "test-qapi-events-sub-module.h",
+      "test-qapi-types-sub-module.h",
+      "test-qapi-visit-sub-module.h"
+    ],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [
+      "59830eb@@testqapi@sta"
+    ],
+    "meson_variables": [
+      "testqapi"
+    ]
+  },
+  {
+    "name": "dep41887231121045077998770796897416782671",
+    "type": "internal",
+    "version": "undefined",
+    "compile_args": [
+      "-DSOFTFLOAT_ROUND_ODD",
+      "-DINLINE_LEVEL=5",
+      "-DSOFTFLOAT_FAST_DIV32TO16",
+      "-DSOFTFLOAT_FAST_DIV64TO32",
+      "-DSOFTFLOAT_FAST_INT64"
+    ],
+    "link_args": [],
+    "include_directories": [
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-softfloat-3/.",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-softfloat-3/.",
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-softfloat-3/source/include",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-softfloat-3/source/include",
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-softfloat-3/source/8086-SSE",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-softfloat-3/source/8086-SSE"
+    ],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [
+      "e586ac9@@softfloat@sta"
+    ],
+    "meson_variables": [
+      "libsoftfloat"
+    ]
+  },
+  {
+    "name": "dep297485703862136066254316707791565717977",
+    "type": "internal",
+    "version": "undefined",
+    "compile_args": [
+      "-DFLOAT16",
+      "-DFLOAT64",
+      "-DEXTFLOAT80",
+      "-DFLOAT128",
+      "-DFLOAT_ROUND_ODD",
+      "-DLONG_DOUBLE_IS_EXTFLOAT80"
+    ],
+    "link_args": [],
+    "include_directories": [
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-testfloat-3/.",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-testfloat-3/.",
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-testfloat-3/source",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-testfloat-3/source"
+    ],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep41887231121045077998770796897416782671"
+    ],
+    "depends": [
+      "91e3eaf@@testfloat@sta"
+    ],
+    "meson_variables": [
+      "libtestfloat"
+    ]
+  },
+  {
+    "name": "dep56796209020769928338653729322762347657",
+    "type": "internal",
+    "version": "undefined",
+    "compile_args": [
+      "-DFLOAT16",
+      "-DFLOAT64",
+      "-DEXTFLOAT80",
+      "-DFLOAT128",
+      "-DFLOAT_ROUND_ODD",
+      "-DLONG_DOUBLE_IS_EXTFLOAT80"
+    ],
+    "link_args": [],
+    "include_directories": [
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-testfloat-3/.",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-testfloat-3/.",
+      "/data/vms/sandbox/aix432/build/qemu/subprojects/berkeley-testfloat-3/source",
+      "/data/vms/sandbox/aix432/build/qemu/build-s3/subprojects/berkeley-testfloat-3/source"
+    ],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [
+      "dep41887231121045077998770796897416782671"
+    ],
+    "depends": [
+      "91e3eaf@@slowfloat@sta"
+    ],
+    "meson_variables": [
+      "libslowfloat"
+    ]
+  },
+  {
+    "name": "dep175402713597364515280081915089308591511",
+    "type": "internal",
+    "version": "11.0.2",
+    "compile_args": [],
+    "link_args": [],
+    "include_directories": [],
+    "sources": [
+      "/data/vms/sandbox/aix432/build/qemu/tests/unit/iothread.c"
+    ],
+    "extra_files": [],
+    "dependencies": [
+      "dep191102640169783447585639738355199993555"
+    ],
+    "depends": [],
+    "meson_variables": [
+      "testblock"
+    ]
+  }
+]

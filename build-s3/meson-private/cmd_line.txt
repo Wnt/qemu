@@ -1,0 +1,14 @@
+[options]
+slirp = enabled
+dbus_display = enabled
+opengl = disabled
+werror = false
+tools = disabled
+prefix = /opt/qemu-ppc-s3
+docs = enabled
+plugins = true
+gdb = /usr/bin/gdb
+
+[properties]
+native_file = ['/data/vms/sandbox/aix432/build/qemu/build-s3/config-meson.cross']
+

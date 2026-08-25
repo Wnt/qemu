@@ -1,0 +1,36 @@
+{
+  "version": "11.0.2",
+  "descriptive_name": "qemu",
+  "license": [
+    "unknown"
+  ],
+  "license_files": [],
+  "subproject_dir": "subprojects",
+  "subprojects": [
+    {
+      "name": "libvhost-user",
+      "version": "undefined",
+      "descriptive_name": "libvhost-user"
+    },
+    {
+      "name": "libvduse",
+      "version": "undefined",
+      "descriptive_name": "libvduse"
+    },
+    {
+      "name": "keycodemapdb",
+      "version": "undefined",
+      "descriptive_name": "keycodemapdb"
+    },
+    {
+      "name": "berkeley-softfloat-3",
+      "version": "undefined",
+      "descriptive_name": "berkeley-softfloat-3"
+    },
+    {
+      "name": "berkeley-testfloat-3",
+      "version": "undefined",
+      "descriptive_name": "berkeley-testfloat-3"
+    }
+  ]
+}

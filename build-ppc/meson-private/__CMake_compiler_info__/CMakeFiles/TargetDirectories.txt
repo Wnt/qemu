@@ -1,0 +1,2 @@
+/data/vms/sandbox/aix432/build/qemu/build-ppc/meson-private/__CMake_compiler_info__/CMakeFiles/edit_cache.dir
+/data/vms/sandbox/aix432/build/qemu/build-ppc/meson-private/__CMake_compiler_info__/CMakeFiles/rebuild_cache.dir
