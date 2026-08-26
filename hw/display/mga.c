@@ -70,6 +70,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(MGAState, MGA)
 #define MGA_IEN             0x1E1C
 #define MGA_VCOUNT          0x1E20
 #define MGA_RESET           0x1E40
+#define MGA_MEMRDBK         0x1E44
 #define MGA_OPMODE          0x1E54
 
 #define MGA_STATUS_SOFTRAPEN    0x00000001
@@ -140,6 +141,7 @@ struct MGAState {
     uint32_t ien;
     uint32_t opmode;
     uint32_t chip_reset;
+    uint32_t memrdbk;
     uint32_t mga_index;     /* PCI config 0x44 */
 
     bitbang_i2c_interface bbi2c;
@@ -293,6 +295,8 @@ static void mga_update_mode(MGAState *s)
     if (offs / 4 < vga->vbe_size / 4) {
         vga->vbe_start_addr = offs / 4;
     }
+    /* make sure the attribute controller "display enable" flag is set */
+    vga->ar_index |= 0x20;
 }
 
 /* GPIO-bitbanged I2C: an XGENIOCTRL bit set to 1 enables the output
@@ -414,6 +418,92 @@ static void mga_dac_write(MGAState *s, uint32_t off, uint8_t val)
     }
 }
 
+/* drawing engine register offsets (within dwgreg[]) */
+#define DWG_DWGCTL      0x00
+#define DWG_MACCESS     0x04
+#define DWG_PLNWT       0x1C
+#define DWG_FCOL        0x24
+#define DWG_LEN         0x5C
+#define DWG_FXBNDRY     0x84
+#define DWG_YDSTLEN     0x88
+#define DWG_PITCH       0x8C
+#define DWG_YDST        0x90
+#define DWG_YDSTORG     0x94
+#define DWG_CXLEFT      0xA0
+#define DWG_CXRIGHT     0xA4
+#define DWG_FXLEFT      0xA8
+#define DWG_FXRIGHT     0xAC
+
+static inline uint32_t dwg32(MGAState *s, unsigned off)
+{
+    return ldl_le_p(&s->dwgreg[off]);
+}
+
+/*
+ * Execute a drawing engine operation (started by a write to the GO alias
+ * at 0x1Dxx).  Only what the AIX lft console path needs is implemented:
+ * solid TRAP fill (used by the driver's clear_screen).
+ */
+static void mga_dwg_execute(MGAState *s)
+{
+    VGACommonState *vga = &s->vga;
+    uint32_t dwgctl = dwg32(s, DWG_DWGCTL);
+    uint32_t opcod = dwgctl & 0xF;
+    uint32_t maccess = dwg32(s, DWG_MACCESS);
+    uint32_t bypp = 1 << (maccess & 3);        /* 0=8bpp 1=16 2=32 3=24 */
+    uint32_t pitch = dwg32(s, DWG_PITCH) & 0x1FFF;
+    uint32_t ydstorg = dwg32(s, DWG_YDSTORG);
+    uint32_t plnwt = dwg32(s, DWG_PLNWT);
+    uint32_t fcol = dwg32(s, DWG_FCOL);
+
+    if ((maccess & 3) == 3) {
+        bypp = 3;
+    }
+
+    if (opcod == 0x4) {         /* TRAP: rectangle/trapezoid fill */
+        uint32_t x1 = dwg32(s, DWG_FXLEFT) & 0xFFFF;
+        uint32_t x2 = dwg32(s, DWG_FXRIGHT) & 0xFFFF;
+        uint32_t ydst = dwg32(s, DWG_YDST);
+        uint32_t len = dwg32(s, DWG_LEN) & 0xFFFF;
+        uint32_t y, x;
+
+        if (!pitch || x2 <= x1 || !len) {
+            return;
+        }
+        for (y = 0; y < len; y++) {
+            uint64_t pix = ((uint64_t)(ydst + y)) * pitch + ydstorg;
+            uint64_t off = (pix + x1) * bypp;
+            uint64_t end = (pix + x2) * bypp;
+
+            if (end > vga->vram_size) {
+                break;
+            }
+            if (plnwt == 0xFFFFFFFF && bypp == 1) {
+                memset(vga->vram_ptr + off, fcol & 0xFF, end - off);
+            } else {
+                for (x = x1; x < x2; x++) {
+                    uint8_t *p = vga->vram_ptr + (pix + x) * bypp;
+                    uint32_t old = 0, val;
+                    unsigned b;
+
+                    for (b = 0; b < bypp; b++) {
+                        old |= (uint32_t)p[b] << (b * 8);
+                    }
+                    val = (old & ~plnwt) | (fcol & plnwt);
+                    for (b = 0; b < bypp; b++) {
+                        p[b] = (val >> (b * 8)) & 0xFF;
+                    }
+                }
+            }
+            memory_region_set_dirty(&vga->vram, off, end - off);
+        }
+        return;
+    }
+    qemu_log_mask(LOG_UNIMP,
+                  "mga: drawing engine opcod 0x%x not implemented "
+                  "(dwgctl=0x%x)\n", opcod, dwgctl);
+}
+
 static uint32_t mga_host_read(MGAState *s, hwaddr addr)
 {
     switch (addr) {
@@ -427,6 +517,8 @@ static uint32_t mga_host_read(MGAState *s, hwaddr addr)
         return mga_vcount(s);
     case MGA_RESET:
         return s->chip_reset;
+    case MGA_MEMRDBK:
+        return s->memrdbk;
     case MGA_OPMODE:
         return s->opmode;
     default:
@@ -457,6 +549,9 @@ static void mga_host_write(MGAState *s, hwaddr addr, uint32_t val)
         break;
     case MGA_RESET:
         s->chip_reset = val & 1;
+        break;
+    case MGA_MEMRDBK:
+        s->memrdbk = val;
         break;
     case MGA_OPMODE:
         s->opmode = val;
@@ -570,10 +665,13 @@ static void mga_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         for (i = 0; i < size; i++) {
             s->dwgreg[(addr + i) & 0xFF] = (val >> (i * 8)) & 0xFF;
         }
+        if (((addr & 0xFC) == DWG_YDSTLEN) && size == 4) {
+            /* YDSTLEN also loads YDST (hi16) and LEN (lo16) */
+            stl_le_p(&s->dwgreg[DWG_YDST], (uint32_t)(val >> 16));
+            stl_le_p(&s->dwgreg[DWG_LEN], (uint32_t)(val & 0xFFFF));
+        }
         if (addr & 0x100) {
-            qemu_log_mask(LOG_UNIMP,
-                          "mga: drawing engine start (reg 0x%" HWADDR_PRIx
-                          ") - acceleration not implemented\n", addr & 0xFF);
+            mga_dwg_execute(s);
         }
         return;
     }
@@ -592,7 +690,13 @@ static void mga_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
 static const MemoryRegionOps mga_ctrl_ops = {
     .read = mga_ctrl_read,
     .write = mga_ctrl_write,
-    .endianness = DEVICE_LITTLE_ENDIAN,
+    /*
+     * The GXT130P presents the G200 register apertures byte-swapped to
+     * the big-endian host: the AIX DDX reads FIFOSTATUS etc with plain
+     * lwz and masks the fifocount bits directly (it spins forever on a
+     * little-endian view).
+     */
+    .endianness = DEVICE_BIG_ENDIAN,
     .valid.min_access_size = 1,
     .valid.max_access_size = 4,
     .impl.min_access_size = 1,
@@ -613,7 +717,7 @@ static void mga_iload_write(void *opaque, hwaddr addr, uint64_t val,
 static const MemoryRegionOps mga_iload_ops = {
     .read = mga_iload_read,
     .write = mga_iload_write,
-    .endianness = DEVICE_LITTLE_ENDIAN,
+    .endianness = DEVICE_BIG_ENDIAN,
 };
 
 /* PCI config space: OPTION regs and the MGA_INDEX/MGA_DATA window */
@@ -674,6 +778,7 @@ static void mga_reset(DeviceState *d)
     s->ien = 0;
     s->opmode = 0;
     s->chip_reset = 0;
+    s->memrdbk = 0;
     s->mga_index = 0;
     s->sda_line = 1;
     s->mode_ext = false;
@@ -699,6 +804,7 @@ static const VMStateDescription vmstate_mga = {
         VMSTATE_UINT32(ien, MGAState),
         VMSTATE_UINT32(opmode, MGAState),
         VMSTATE_UINT32(chip_reset, MGAState),
+        VMSTATE_UINT32(memrdbk, MGAState),
         VMSTATE_UINT32(mga_index, MGAState),
         VMSTATE_UINT8(sda_line, MGAState),
         VMSTATE_UINT32(mode_width, MGAState),
