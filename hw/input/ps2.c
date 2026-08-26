@@ -653,8 +653,17 @@ void ps2_write_keyboard(PS2KbdState *s, int val)
         }
         break;
     case KBD_CMD_SET_MAKE_BREAK:
-        ps2_cqueue_1(ps2, KBD_REPLY_ACK);
-        ps2->write_cmd = -1;
+        /*
+         * In scancode set 3, this command takes a list of key numbers,
+         * terminated by the next command byte (>= 0xED).  AIX relies on
+         * this: it sends several key ids and expects each to be ACKed.
+         */
+        if (val < KBD_CMD_SET_LEDS) {
+            ps2_cqueue_1(ps2, KBD_REPLY_ACK);
+        } else {
+            ps2->write_cmd = -1;
+            ps2_write_keyboard(s, val);
+        }
         break;
     case KBD_CMD_SCANCODE:
         if (val == 0) {
