@@ -1233,10 +1233,40 @@ static void mga_reset(DeviceState *d)
     timer_del(&s->vline_timer);
 }
 
+/* After loadvm the converted 256-colour palette must be rebuilt, and one input
+ * to it is NOT part of the migration stream.
+ *
+ * VGACommonState::dac_8bit is a DERIVED field: vga.c sets it only as a side
+ * effect of a VBE_DISPI_INDEX_ENABLE write (and clears it on reset), and
+ * vmstate_vga_common does not carry it. So a restored guest always came back
+ * with dac_8bit == 0, i.e. a 6-bit VGA DAC, and update_palette256() shifted
+ * every component left by 2. On this station that is highly visible: AIX runs
+ * CDE at 1024x768x8 PseudoColor with an 8-bit DAC, so a restored desktop came
+ * back structurally perfect but colour-crushed -- greys to black, mid tones to
+ * saturated magenta/cyan/yellow.
+ *
+ * The authoritative bit is already in the stream, in our own xreg[] copy of
+ * XMISCCTRL, so re-derive it here instead of growing the migration format.
+ * That deliberately keeps the wire format unchanged: checkpoints taken before
+ * this fix still load, and now restore with correct colour.
+ */
+static int mga_post_load(void *opaque, int version_id)
+{
+    MGAState *s = opaque;
+
+    s->vga.dac_8bit = (s->xreg[MGA_XMISCCTRL] & MGA_XMISCCTRL_DAC_8BIT) != 0;
+    /* Force a full redraw so the palette is re-converted for every pixel. */
+    if (s->vga.con) {
+        graphic_hw_invalidate(s->vga.con);
+    }
+    return 0;
+}
+
 static const VMStateDescription vmstate_mga = {
     .name = TYPE_MGA,
     .version_id = 2,
     .minimum_version_id = 1,
+    .post_load = mga_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_PCI_DEVICE(dev, MGAState),
         VMSTATE_STRUCT(vga, MGAState, 0, vmstate_vga_common, VGACommonState),
