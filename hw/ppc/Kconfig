@@ -117,6 +117,7 @@ config PREP
     select RS6000_MC
     select FW_CFG_PPC
     select VGA_S3
+    select VGA_MGA
 
 config RS6000_MC
     bool

@@ -224,6 +224,7 @@ static const struct {
     { .driver = "qxl-vga",              .flag = &default_vga       },
     { .driver = "virtio-vga",           .flag = &default_vga       },
     { .driver = "s3-trio",              .flag = &default_vga       },
+    { .driver = "mga",                  .flag = &default_vga       },
     { .driver = "ati-vga",              .flag = &default_vga       },
     { .driver = "vhost-user-vga",       .flag = &default_vga       },
     { .driver = "virtio-vga-gl",        .flag = &default_vga       },
@@ -993,6 +994,11 @@ static const VGAInterfaceInfo vga_interfaces[VGA_TYPE_MAX] = {
         .opt_name = "s3",
         .name = "S3 Trio",
         .class_names = { "s3-trio" },
+    },
+    [VGA_MGA] = {
+        .opt_name = "mga",
+        .name = "Matrox MGA G200",
+        .class_names = { "mga" },
     },
 #ifdef CONFIG_XEN_BACKEND
     [VGA_XENFB] = {

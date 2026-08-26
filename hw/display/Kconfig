@@ -14,6 +14,13 @@ config VGA_S3
     depends on PCI
     select VGA
 
+config VGA_MGA
+    bool
+    depends on PCI
+    select VGA
+    select BITBANG_I2C
+    select DDC
+
 config VGA_CIRRUS
     bool
     default y if PCI_DEVICES
