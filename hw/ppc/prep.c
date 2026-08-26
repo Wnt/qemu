@@ -265,8 +265,22 @@ static void ibm_40p_init(MachineState *machine)
         exit(1);
     }
 
-    /* Set time-base frequency to 100 Mhz */
-    cpu_ppc_tb_init(env, 100UL * 1000UL * 1000UL);
+    /* Set time-base frequency to 100 Mhz.
+     *
+     * PREP_TB_FREQ overrides it: the real IBM 7020/40p firmware
+     * (rs6k40p ROM) does not calibrate the 604 timebase, it assumes the
+     * board's bus/4 = 15 MHz (66.67 ns/tick constants baked into its
+     * time code).  With QEMU's 100 MHz default the firmware clock runs
+     * 6.67x fast, its periodic RTC re-sync steps time backwards, and a
+     * monotonicity assert traps into the flashing-888 halt loop
+     * (888-102-700-0A5).  Run with PREP_TB_FREQ=15000000 for that ROM.
+     */
+    {
+        const char *tbf = getenv("PREP_TB_FREQ");
+        uint32_t tb_freq = tbf ? strtoul(tbf, NULL, 0)
+                               : 100UL * 1000UL * 1000UL;
+        cpu_ppc_tb_init(env, tb_freq);
+    }
     qemu_register_reset(ppc_prep_reset, cpu);
 
     /* allocate and load firmware */
