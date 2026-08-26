@@ -49,6 +49,7 @@
 #include "vga_int.h"
 #include "vga_regs.h"
 #include "qom/object.h"
+#include "trace.h"
 
 #define TYPE_MGA "mga"
 OBJECT_DECLARE_SIMPLE_TYPE(MGAState, MGA)
@@ -535,8 +536,9 @@ static void mga_ctx_init(MGADrawCtx *c, MGAState *s, uint32_t dwgctl)
     c->bop = DWG_BOP(dwgctl);
     c->ytop = dwg32(s, DWG_YTOP) & 0xFFFFFF;
     c->ybot = dwg32(s, DWG_YBOT) & 0xFFFFFF;
-    c->cxl = cxb & 0xFFF;
-    c->cxr = (cxb >> 16) & 0xFFF;
+    (void)cxb;
+    c->cxl = dwg32(s, DWG_CXLEFT) & 0xFFF;
+    c->cxr = dwg32(s, DWG_CXRIGHT) & 0xFFF;
 }
 
 static uint32_t mga_rdpix(const MGADrawCtx *c, int64_t pixaddr)
@@ -635,9 +637,8 @@ static void mga_dwg_trap(MGAState *s, uint32_t dwgctl)
 static void mga_dwg_bitblt(MGAState *s, uint32_t dwgctl)
 {
     MGADrawCtx c;
-    uint32_t fxb = dwg32(s, DWG_FXBNDRY);
-    int32_t x1 = (int16_t)fxb;
-    int32_t x2 = (int16_t)(fxb >> 16);
+    int32_t x1 = (int16_t)dwg32(s, DWG_FXLEFT);
+    int32_t x2 = (int16_t)dwg32(s, DWG_FXRIGHT);
     uint32_t len = dwg32(s, DWG_LEN) & 0xFFFF;
     int32_t ydst = (int32_t)(dwg32(s, DWG_YDST) & 0x7FFFFF);
     uint32_t ar3 = dwg32(s, DWG_AR3) & 0xFFFFFF;
@@ -739,9 +740,8 @@ static void mga_dwg_line(MGAState *s, uint32_t dwgctl)
 static void mga_dwg_iload_start(MGAState *s, uint32_t dwgctl)
 {
     MGADrawCtx c;
-    uint32_t fxb = dwg32(s, DWG_FXBNDRY);
-    int32_t x1 = (int16_t)fxb;
-    int32_t x2 = (int16_t)(fxb >> 16);
+    int32_t x1 = (int16_t)dwg32(s, DWG_FXLEFT);
+    int32_t x2 = (int16_t)dwg32(s, DWG_FXRIGHT);
     uint32_t len = dwg32(s, DWG_LEN) & 0xFFFF;
     uint32_t ydst = dwg32(s, DWG_YDST) & 0x7FFFFF;
     uint32_t bltmod = DWG_BLTMOD(dwgctl);
@@ -885,6 +885,15 @@ static void mga_dwg_execute(MGAState *s)
 {
     uint32_t dwgctl = dwg32(s, DWG_DWGCTL);
     uint32_t opcod = DWG_OPCOD(dwgctl);
+
+    trace_mga_dwg_go(dwgctl, dwg32(s, DWG_XYSTRT), dwg32(s, DWG_XYEND),
+                     dwg32(s, DWG_FXLEFT), dwg32(s, DWG_FXRIGHT),
+                     dwg32(s, DWG_YDST), dwg32(s, DWG_LEN),
+                     dwg32(s, DWG_SGN), dwg32(s, DWG_FCOL));
+    trace_mga_dwg_go2(dwg32(s, DWG_AR0), dwg32(s, DWG_AR3),
+                      dwg32(s, DWG_AR5), dwg32(s, DWG_CXLEFT),
+                      dwg32(s, DWG_CXRIGHT), dwg32(s, DWG_YTOP),
+                      dwg32(s, DWG_YBOT), dwg32(s, DWG_YDSTORG));
 
     /* a new operation cancels any half-fed ILOAD */
     s->il_active = false;
@@ -1092,6 +1101,14 @@ static void mga_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
             /* YDSTLEN also loads YDST (hi16) and LEN (lo16) */
             stl_le_p(&s->dwgreg[DWG_YDST], (uint32_t)(val >> 16));
             stl_le_p(&s->dwgreg[DWG_LEN], (uint32_t)(val & 0xFFFF));
+        }
+        if (((addr & 0xFC) == DWG_CXBNDRY) && size == 4) {
+            stl_le_p(&s->dwgreg[DWG_CXLEFT], (uint32_t)(val & 0xFFFF));
+            stl_le_p(&s->dwgreg[DWG_CXRIGHT], (uint32_t)(val >> 16));
+        }
+        if (((addr & 0xFC) == DWG_FXBNDRY) && size == 4) {
+            stl_le_p(&s->dwgreg[DWG_FXLEFT], (uint32_t)(val & 0xFFFF));
+            stl_le_p(&s->dwgreg[DWG_FXRIGHT], (uint32_t)(val >> 16));
         }
         if (addr & 0x100) {
             mga_dwg_execute(s);

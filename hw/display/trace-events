@@ -241,3 +241,7 @@ s3_vga_io_readb(uint32_t addr, uint32_t val) "read addr=%04x: 0x%02x"
 s3_vga_io_readw(uint32_t addr, uint32_t val) "read addr=%04x: 0x%04x"
 s3_vga_io_writeb(uint32_t addr, uint32_t val) "write addr=%04x: 0x%02x"
 s3_vga_io_writew(uint32_t addr, uint32_t val) "write addr=%04x: 0x%04x"
+
+# mga.c
+mga_dwg_go(uint32_t dwgctl, uint32_t xystrt, uint32_t xyend, uint32_t fxl, uint32_t fxr, uint32_t ydst, uint32_t len, uint32_t sgn, uint32_t fcol) "dwgctl 0x%x xystrt 0x%x xyend 0x%x fxl 0x%x fxr 0x%x ydst 0x%x len 0x%x sgn 0x%x fcol 0x%x"
+mga_dwg_go2(uint32_t ar0, uint32_t ar3, uint32_t ar5, uint32_t cxl, uint32_t cxr, uint32_t ytop, uint32_t ybot, uint32_t ydstorg) "ar0 0x%x ar3 0x%x ar5 0x%x cxl 0x%x cxr 0x%x ytop 0x%x ybot 0x%x ydstorg 0x%x"
