@@ -50,6 +50,7 @@
 #include "vga_regs.h"
 #include "qom/object.h"
 #include "trace.h"
+#include "ui/pixel_ops.h"
 
 #define TYPE_MGA "mga"
 OBJECT_DECLARE_SIMPLE_TYPE(MGAState, MGA)
@@ -99,7 +100,11 @@ OBJECT_DECLARE_SIMPLE_TYPE(MGAState, MGA)
 #define MGA_DAC_CURPOSYH    0x0F
 
 /* X registers */
+#define MGA_XCURADDL        0x04
+#define MGA_XCURADDH        0x05
 #define MGA_XCURCTRL        0x06
+#define MGA_XCURCOL0RED     0x08    /* ..0x0A: R,G,B */
+#define MGA_XCURCOL1RED     0x0C    /* ..0x0E: R,G,B */
 #define MGA_XMULCTRL        0x19
 #define MGA_XPIXCLKCTRL     0x1A
 #define MGA_XMISCCTRL       0x1E
@@ -170,6 +175,10 @@ struct MGAState {
     uint32_t il_x0, il_x1, il_x, il_y;
     uint32_t il_rows_left;
     uint32_t il_ytop, il_ybot, il_cxl, il_cxr;
+
+    /* hardware cursor bookkeeping (derived from xreg[], not migrated) */
+    int hw_cursor_size;
+    int hw_cursor_last_x, hw_cursor_last_y;
 };
 
 #define MGA_IL_MONO_LSB 0       /* BMONOLEF */
@@ -348,6 +357,111 @@ static uint8_t mga_i2c_read(MGAState *s)
     return val;
 }
 
+/*
+ * Hardware cursor: DAC1064/G200 style.  The 64x64x2bpp shape lives in
+ * VRAM at XCURADD<<10 (16 bytes per scan line: 8 bytes plane 0, then 8
+ * bytes plane 1, MSB = leftmost pixel).  The position registers hold the
+ * screen position of the sprite's top-left corner biased by +64 so that
+ * 0 parks it off screen.  The sprite is composed into the display
+ * surface from the vga core's cursor hooks, so every consumer of the
+ * console surface (streamhost capture, screendump, VNC) sees it.
+ */
+static int mga_cursor_x(MGAState *s)
+{
+    return (s->xreg[0xF0] | ((int)s->xreg[0xF1] << 8)) - 64;
+}
+
+static int mga_cursor_y(MGAState *s)
+{
+    return (s->xreg[0xF2] | ((int)s->xreg[0xF3] << 8)) - 64;
+}
+
+static void mga_cursor_invalidate_rect(MGAState *s, int y)
+{
+    vga_invalidate_scanlines(&s->vga, MAX(y, 0), MAX(y + 64, 0));
+}
+
+static void mga_cursor_invalidate(VGACommonState *vga)
+{
+    MGAState *s = container_of(vga, MGAState, vga);
+    int size = (s->xreg[MGA_XCURCTRL] & 3) ? 64 : 0;
+    int x = mga_cursor_x(s), y = mga_cursor_y(s);
+
+    if (size != s->hw_cursor_size || x != s->hw_cursor_last_x ||
+        y != s->hw_cursor_last_y) {
+        if (s->hw_cursor_size) {
+            mga_cursor_invalidate_rect(s, s->hw_cursor_last_y);
+        }
+        s->hw_cursor_size = size;
+        s->hw_cursor_last_x = x;
+        s->hw_cursor_last_y = y;
+        if (size) {
+            mga_cursor_invalidate_rect(s, y);
+        }
+    }
+}
+
+static void mga_cursor_draw_line(VGACommonState *vga, uint8_t *d, int scr_y)
+{
+    MGAState *s = container_of(vga, MGAState, vga);
+    unsigned mode = s->xreg[MGA_XCURCTRL] & 3;
+    const uint8_t *p0, *p1;
+    uint32_t addr, col0, col1;
+    int cx, cy, x;
+
+    if (!mode) {
+        return;
+    }
+    cx = mga_cursor_x(s);
+    cy = mga_cursor_y(s);
+    if (scr_y < cy || scr_y >= cy + 64) {
+        return;
+    }
+    addr = (((uint32_t)s->xreg[MGA_XCURADDH] << 8) | s->xreg[MGA_XCURADDL])
+           << 10;
+    if (addr + 1024 > vga->vram_size) {
+        return;
+    }
+    p0 = vga->vram_ptr + addr + (scr_y - cy) * 16;
+    p1 = p0 + 8;
+    col0 = rgb_to_pixel32(s->xreg[MGA_XCURCOL0RED],
+                          s->xreg[MGA_XCURCOL0RED + 1],
+                          s->xreg[MGA_XCURCOL0RED + 2]);
+    col1 = rgb_to_pixel32(s->xreg[MGA_XCURCOL1RED],
+                          s->xreg[MGA_XCURCOL1RED + 1],
+                          s->xreg[MGA_XCURCOL1RED + 2]);
+    for (x = 0; x < 64; x++) {
+        int sx = cx + x;
+        bool b0 = (p0[x >> 3] >> (7 - (x & 7))) & 1;
+        bool b1 = (p1[x >> 3] >> (7 - (x & 7))) & 1;
+        uint32_t *px;
+
+        if (sx < 0 || sx >= vga->last_scr_width) {
+            continue;
+        }
+        px = (uint32_t *)d + sx;
+        switch (mode) {
+        case 3:                 /* X-windows: plane 1 = mask */
+            if (b1) {
+                *px = b0 ? col1 : col0;
+            }
+            break;
+        case 2:                 /* XGA: plane 1 = transparency/complement */
+            if (!b1) {
+                *px = b0 ? col1 : col0;
+            } else if (b0) {
+                *px = ~*px;
+            }
+            break;
+        default:                /* 3-colour */
+            if (b0 || b1) {
+                *px = b1 ? col1 : col0;
+            }
+            break;
+        }
+    }
+}
+
 static uint8_t mga_xreg_read(MGAState *s, uint8_t idx)
 {
     switch (idx) {
@@ -378,10 +492,12 @@ static void mga_xreg_write(MGAState *s, uint8_t idx, uint8_t val)
         mga_update_mode(s);
         break;
     case MGA_XCURCTRL:
-        if (val & 3) {
-            qemu_log_mask(LOG_UNIMP, "mga: hardware cursor enabled "
-                          "(mode %d) - not implemented\n", val & 3);
-        }
+    case MGA_XCURADDL:
+    case MGA_XCURADDH:
+    case MGA_XCURCOL0RED ... MGA_XCURCOL0RED + 2:
+    case MGA_XCURCOL1RED ... MGA_XCURCOL1RED + 2:
+        /* shape, colours or enable changed in place: repaint the sprite */
+        mga_cursor_invalidate_rect(s, mga_cursor_y(s));
         break;
     default:
         break;
@@ -472,6 +588,8 @@ static void mga_dac_write(MGAState *s, uint32_t off, uint8_t val)
 #define DWG_BLTMOD(c)   (((c) >> 25) & 0xF)
 #define DWGCTL_LINEAR   (1u << 7)
 #define DWGCTL_SOLID    (1u << 11)
+#define DWGCTL_ARZERO   (1u << 12)
+#define DWGCTL_SGNZERO  (1u << 13)
 #define DWGCTL_TRANSC   (1u << 30)
 
 #define OPCOD_LINE_OPEN      0x0
@@ -643,7 +761,8 @@ static void mga_dwg_bitblt(MGAState *s, uint32_t dwgctl)
     int32_t ydst = (int32_t)(dwg32(s, DWG_YDST) & 0x7FFFFF);
     uint32_t ar3 = dwg32(s, DWG_AR3) & 0xFFFFFF;
     int32_t ar5 = sextract32(dwg32(s, DWG_AR5), 0, 18);
-    uint32_t sgn = dwg32(s, DWG_SGN);
+    /* sgnzero: the SGN register contents are ignored (treated as 0) */
+    uint32_t sgn = (dwgctl & DWGCTL_SGNZERO) ? 0 : dwg32(s, DWG_SGN);
     bool scanleft = sgn & 1;
     int ydir = (sgn & 4) ? -1 : 1;
     int32_t w = x2 - x1 + 1;
@@ -1230,6 +1349,9 @@ static void mga_reset(DeviceState *d)
     s->primaddr = 0;
     s->primend = 0;
     s->il_active = false;
+    s->hw_cursor_size = 0;
+    s->hw_cursor_last_x = 0;
+    s->hw_cursor_last_y = 0;
     timer_del(&s->vline_timer);
 }
 
@@ -1326,6 +1448,8 @@ static void mga_realize(PCIDevice *dev, Error **errp)
         return;
     }
     s->vga.con = graphic_console_init(DEVICE(s), 0, s->vga.hw_ops, &s->vga);
+    s->vga.cursor_invalidate = mga_cursor_invalidate;
+    s->vga.cursor_draw_line = mga_cursor_draw_line;
 
     memory_region_init_io(&s->ctrl, o, &mga_ctrl_ops, s,
                           "mga-ctrl", MGA_CTRL_SIZE);
