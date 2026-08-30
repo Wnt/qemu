@@ -51,6 +51,11 @@
 #include "qom/object.h"
 #include "trace.h"
 #include "ui/pixel_ops.h"
+#include "ui/input.h"
+#include "chardev/char-fe.h"
+#include "hw/core/qdev-properties-system.h"
+#include "system/runstate.h"
+#include <math.h>
 
 #define TYPE_MGA "mga"
 OBJECT_DECLARE_SIMPLE_TYPE(MGAState, MGA)
@@ -132,6 +137,113 @@ OBJECT_DECLARE_SIMPLE_TYPE(MGAState, MGA)
 
 #define MGA_VLINE_PERIOD_NS (NANOSECONDS_PER_SECOND / 60)
 
+
+/* ---- closed-loop 1:1 pointer: see the engine further down ------------ */
+#define PTR_RXMAX            512
+#define PTR_QMAX             64
+#define PTR_SPRITE_MAX       63     /* a hotspot lives inside the 64x64 sprite */
+#define PTR_OSC_FLIPS        3      /* sign reversals within ONE target       */
+#define PTR_INFL_DECAY       0.5    /* per window                             */
+#define PTR_GAIN_MARGIN      1.10   /* undershoot margin on every step        */
+#define PTR_GAIN_MIN_COUNTS  6
+#define PTR_GAIN_LO          0.25
+#define PTR_GAIN_HI          4.0
+#define PTR_GAIN_ALPHA_UP    0.35
+#define PTR_GAIN_ALPHA_DOWN  0.10
+#define PTR_GAIN_EDGE_MARGIN 2
+/* Above this the correction is not a limit cycle, it is a control failure:
+ * let the give-up cap own it rather than accepting the pointer that far off. */
+#define PTR_OSC_MAX_ERR      32
+#define PTR_HOME_MAX_WINDOWS 96
+#define PTR_HOME_STILL       3
+#define PTR_HOT_SLOTS        24
+#define PTR_PIN_WINDOWS      3
+/* How long a step may stay "on the wire" before it is declared landed. */
+#define PTR_AWAIT_MAX        6
+
+typedef struct MGAPtrVerb {
+    char kind;              /* 't' target, 'b' button edge, 's' sync fence */
+    int x, y;               /* 't' */
+    int btn;                /* 'b': 0..2 = left, right, middle             */
+    bool down;              /* 'b'                                         */
+    uint64_t seq;           /* client seq; 0 = internal, no ack            */
+} MGAPtrVerb;
+
+typedef struct MGAPtrLoop {
+    CharFrontend chr;       /* the control socket; one client at a time    */
+    bool enabled;           /* a control chardev was configured            */
+    bool open;              /* ... and a client is connected               */
+    bool trace;
+    bool trace_pos;
+    bool track_hotspot;
+    uint32_t window_ms, dead, move_step, tries, btn_gap_ms;
+    uint32_t gain_x100;     /* seed for gx/gy, in hundredths of a px/count */
+
+    QEMUTimer timer;
+    VMChangeStateEntry *vmse;
+
+    char rx[PTR_RXMAX];
+    uint32_t rxlen;
+
+    /* the converging target */
+    bool ta_active;
+    int ta_x, ta_y;
+    uint64_t ta_seq;
+    uint32_t windows;
+
+    /* control state -- all of it derived, none of it migrated */
+    double infl_x, infl_y;  /* px issued but not yet observed              */
+    double gx, gy;          /* px per count; a STEP SIZER, not a model     */
+    int obs_x, obs_y;       /* last reading                                */
+    int bel_x, bel_y;       /* belief, used only while the sprite is off   */
+    bool obs_valid;
+    int last_cx, last_cy;
+    /* A step is on the wire and the registers have not moved yet. Nothing
+     * new may be issued until they do -- see mga_ptr_step. */
+    bool awaiting;
+    uint32_t await_windows;
+    int osc_sx, osc_sy;
+    uint32_t osc_nx, osc_ny;
+
+    /* glyph hotspot, measured from the compensating register write */
+    int hot_x, hot_y;
+    bool hot_dirty;
+    uint64_t cur_sig;       /* signature of the sprite bytes plus its address */
+    bool sig_valid;
+    bool hot_exact;         /* the current glyph's hotspot was MEASURED       */
+    /* Opportunistic clamp calibration: windows spent pushing an axis whose
+     * registers refuse to move, and the reading they refused at. */
+    uint32_t pinned_x, pinned_y;
+    int last_cx_dir, last_cy_dir;
+    int pin_rx, pin_ry;
+    /* Glyph signature -> its measured hotspot. A glyph has to be caught at
+     * rest exactly once, ever; after that every swap to it is exact. */
+    struct {
+        uint64_t sig;
+        int hx, hy;
+        bool valid;
+    } hot_tab[PTR_HOT_SLOTS];
+    uint32_t hot_next;
+    bool latch_valid;
+    int latch_x, latch_y;
+
+    /* One-time clamp calibration (see mga_ptr_home). */
+    bool homing;
+    uint32_t home_windows;
+    uint32_t home_still;
+    int home_last_x, home_last_y;
+
+    /* verbs deferred behind the converging target */
+    MGAPtrVerb q[PTR_QMAX];
+    uint32_t qhead, qlen;
+    int64_t btn_ready_ns;
+    uint8_t held;           /* buttons this engine is holding down         */
+
+    /* STAT counters */
+    int res_x, res_y;
+    uint64_t steps, converged, gaveup, hot_seen;
+} MGAPtrLoop;
+
 struct MGAState {
     PCIDevice dev;
     VGACommonState vga;
@@ -179,6 +291,9 @@ struct MGAState {
     /* hardware cursor bookkeeping (derived from xreg[], not migrated) */
     int hw_cursor_size;
     int hw_cursor_last_x, hw_cursor_last_y;
+
+    /* closed-loop 1:1 pointer over those same cursor registers */
+    MGAPtrLoop ptr;
 };
 
 #define MGA_IL_MONO_LSB 0       /* BMONOLEF */
@@ -366,6 +481,28 @@ static uint8_t mga_i2c_read(MGAState *s)
  * surface from the vga core's cursor hooks, so every consumer of the
  * console surface (streamhost capture, screendump, VNC) sees it.
  */
+/*
+ * The DAC1064 biases the cursor position registers by +64, so that 0 parks the
+ * 64x64 sprite entirely off screen. THE BIAS IS 64 AND NOT 57, which is worth
+ * writing down because the measurement says 57 until you look at the glyph.
+ *
+ * Shove the pointer past the top-left corner until the X server pins it -- the
+ * pointer is then (0,0) by construction -- and these registers read 57. The
+ * same 7 shows up at the bottom-right clamp, on both axes. That looks exactly
+ * like a bias off by 7, and subtracting 57 does make the sprite origin land on
+ * the pointer.
+ *
+ * It is not a bias. The sprite CDE installs over the root window is the
+ * X_cursor -- a 16x16 saltire whose hotspot is its CENTRE -- so the origin is
+ * SUPPOSED to sit 7 px up and left of the pointer, and forcing it onto the
+ * pointer draws the X 7 px down and right of where a click lands. The proof is
+ * in the shape: at bias 57 the corner shows the whole X with its arms at the
+ * screen edge; at bias 64 the top-left 7 px are correctly clipped, because
+ * that is where a centre-hotspot cursor sits when its hotspot is at (0,0).
+ *
+ * So the 7 is a HOTSPOT, and hotspots are the pointer engine's business, not
+ * the DAC's: see mga_ptr_home and mga_ptr_glyph_sample below.
+ */
 static int mga_cursor_x(MGAState *s)
 {
     return (s->xreg[0xF0] | ((int)s->xreg[0xF1] << 8)) - 64;
@@ -432,8 +569,25 @@ static void mga_cursor_draw_line(VGACommonState *vga, uint8_t *d, int scr_y)
                           s->xreg[MGA_XCURCOL1RED + 2]);
     for (x = 0; x < 64; x++) {
         int sx = cx + x;
-        bool b0 = (p0[x >> 3] >> (7 - (x & 7))) & 1;
-        bool b1 = (p1[x >> 3] >> (7 - (x & 7))) & 1;
+        /*
+         * The 8 bytes of each plane row are BYTE-REVERSED in VRAM: byte 7
+         * holds the leftmost 8 pixels.  Not a guess -- dumped live from
+         * 0xC3000000 + XCURADD<<10 with a cursor on screen, and only this
+         * reading produces a cursor at all (every other candidate layout is
+         * blank or noise; the arrow's tip lands at sprite 0,0 under it).
+         * AIX's DDX uploads the sprite with 64-bit stores -- what a PowerPC
+         * graphics driver naturally uses for a bulk copy -- and they land
+         * byte-swapped in this model's little-endian VRAM aperture.  Nothing
+         * else is affected because CDE draws through the BITBLT/ILOAD engine,
+         * not through direct framebuffer stores.
+         *
+         * Read the wrong way round the sprite still RENDERS, which is why it
+         * survived bring-up: an arrow appeared and tracked the mouse. It
+         * appeared ~48 px to the RIGHT of the actual pointer, which no
+         * open-loop test could see and a 1:1 cursor cannot live with.
+         */
+        bool b0 = (p0[7 - (x >> 3)] >> (7 - (x & 7))) & 1;
+        bool b1 = (p1[7 - (x >> 3)] >> (7 - (x & 7))) & 1;
         uint32_t *px;
 
         if (sx < 0 || sx >= vga->last_scr_width) {
@@ -461,6 +615,1186 @@ static void mga_cursor_draw_line(VGACommonState *vga, uint8_t *d, int scr_y)
         }
     }
 }
+
+/* ===================================================================== *
+ * Closed-loop 1:1 pointer ("mgaptr/1")
+ *
+ * The 40p has a PS/2 mouse and nothing else -- no tablet, no absolute
+ * device -- so the daemon used to reckon absolute coordinates itself:
+ * pin the guest cursor into a corner once, then send deltas from where
+ * it BELIEVES the cursor is.  A belief is wrong the moment the guest
+ * accelerates, clamps at a screen edge, or warps the pointer, and the
+ * visitor's cursor and the guest's part company with nothing to pull
+ * them back together.
+ *
+ * This station does not have to guess.  The X server drives the Matrox
+ * HARDWARE cursor, so the guest writes the pointer position into the
+ * DAC's CURPOSX/CURPOSY registers on every move -- and those registers
+ * are ours to read.  That closes the loop, exactly as `irix` closes it
+ * over the Newport VC2's cursor registers (docs/IO-PATHS.md, the
+ * `mamesock (closed loop)` row):
+ *
+ *     err = target - reading - hotspot - in-flight
+ *     counts = trunc(err / (gain * margin)),  capped, one step per window
+ *
+ * The control law and its three binding rules are ported from the MAME
+ * ctlsock module's landed MOVEA engine, whose dead ends are recorded in
+ * docs/guests/irix.md "MOVEA engine -- closed loop over the reading":
+ *
+ *   - IN-FLIGHT (`infl`, geometrically decayed) holds pixels issued but
+ *     not yet observed, so a lagging reading cannot make the loop
+ *     re-issue counts that are already on the wire.  That was v1's
+ *     rubber-band.
+ *   - NO OPPOSING STEP: a step may never contradict the sign of the
+ *     measured error.  Never extrapolate the cursor ahead of real
+ *     movement -- undershoot and trim.
+ *   - THE OSCILLATION LATCH: a target that reverses its correction
+ *     OSC_FLIPS times is finished where it stands, which is what keeps
+ *     a glyph whose hotspot flips at a boundary from being chased in
+ *     and out of the hot zone forever (the "repelling magnet").
+ *
+ * GAIN IS A STEP SIZER ONLY.  It sizes how far one window may reach;
+ * it never decides where the pointer ends up, because the next window
+ * measures the result.  A wrong gain costs convergence SPEED, never
+ * accuracy -- which is the whole reason this is a closed loop and not
+ * the dead-reckoned bridge it replaces.
+ *
+ * THE HOTSPOT IS READ, NOT INFERRED.  The registers hold the cursor
+ * SPRITE's top-left corner, so the reading is `pointer - hotspot`, and
+ * every glyph X installs (I-beam, resize handle, watch) has a different
+ * hotspot.  Driving the READING onto the target would park the POINTER
+ * a hotspot away from the visitor's cursor.  No register holds the
+ * hotspot -- but swapping the glyph FORCES a compensating write to the
+ * position registers with the pointer standing still, and that write IS
+ * the hotspot delta.  So the shape/enable registers ARM a sampler, and
+ * the next window books the position delta as a hotspot change -- but
+ * only when the loop itself commanded nothing, and only when the step
+ * fits inside the 64x64 sprite.  Both guards exist because on irix four
+ * separate attempts to INFER the hotspot from samples and statistics
+ * each looked right and each failed in the field.
+ *
+ * NOTHING HERE IS MIGRATED.  Every field below is derived from the
+ * registers (which are migrated) or from the live connection, and the
+ * engine re-bases itself after a `loadvm`.  That is deliberate: adding
+ * a save item would change the machine's migration signature and cost
+ * the station a golden recapture (AGENTS.md rule 6).
+ * ===================================================================== */
+
+static void G_GNUC_PRINTF(2, 3) mga_ptr_trace(MGAState *s,
+                                             const char *fmt, ...)
+{
+    va_list ap;
+
+    if (!s->ptr.trace) {
+        return;
+    }
+    va_start(ap, fmt);
+    fprintf(stderr, "mgaptr: ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+    fflush(stderr);
+}
+
+static int mga_ptr_surf_w(MGAState *s)
+{
+    return s->mode_width ? (int)s->mode_width : 1024;
+}
+
+static int mga_ptr_surf_h(MGAState *s)
+{
+    return s->mode_height ? (int)s->mode_height : 768;
+}
+
+/*
+ * ONE observation of the hardware-cursor registers.  Returns false when
+ * the sprite is disabled: the reading is then stale and the loop must
+ * fall back on its belief rather than chase a frozen number.
+ */
+static bool mga_ptr_reading(MGAState *s, int *rx, int *ry)
+{
+    *rx = mga_cursor_x(s);
+    *ry = mga_cursor_y(s);
+    return (s->xreg[MGA_XCURCTRL] & 3) != 0;
+}
+
+static void G_GNUC_PRINTF(2, 3) mga_ptr_send(MGAState *s, const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    int n;
+
+    if (!s->ptr.open) {
+        return;
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        return;
+    }
+    if (n > (int)sizeof(buf) - 2) {
+        n = sizeof(buf) - 2;
+    }
+    buf[n++] = '\n';
+    qemu_chr_fe_write_all(&s->ptr.chr, (const uint8_t *)buf, n);
+}
+
+/* ---- injection: straight at the PS/2 mouse ---------------------------
+ *
+ * The engine is the SINGLE INJECTOR for this guest's pointer.  Nothing
+ * else may push motion or button edges at the mouse while the socket is
+ * connected -- a second injector fights the loop for the guest's PS/2
+ * accumulator and the two of them will never agree on where the cursor
+ * is.  streamhost enforces its half by routing the whole pointer here
+ * when SH_INPUT_BACKEND=mgactl.
+ */
+static void mga_ptr_inject_rel(MGAState *s, int cx, int cy)
+{
+    if (cx) {
+        qemu_input_queue_rel(NULL, INPUT_AXIS_X, cx);
+    }
+    if (cy) {
+        qemu_input_queue_rel(NULL, INPUT_AXIS_Y, cy);
+    }
+    qemu_input_event_sync();
+}
+
+static void mga_ptr_inject_btn(MGAState *s, int btn, bool down)
+{
+    static const InputButton map[3] = {
+        INPUT_BUTTON_LEFT, INPUT_BUTTON_RIGHT, INPUT_BUTTON_MIDDLE
+    };
+
+    if (btn < 0 || btn > 2) {
+        return;
+    }
+    qemu_input_queue_btn(NULL, map[btn], down);
+    qemu_input_event_sync();
+    if (down) {
+        s->ptr.held |= 1 << btn;
+    } else {
+        s->ptr.held &= ~(1 << btn);
+    }
+    mga_ptr_trace(s, "btn %d %s", btn + 1, down ? "down" : "up");
+}
+
+static void mga_ptr_release_all(MGAState *s)
+{
+    int b;
+
+    for (b = 0; b < 3; b++) {
+        if (s->ptr.held & (1 << b)) {
+            mga_ptr_inject_btn(s, b, false);
+        }
+    }
+}
+
+/* ---- the verb queue --------------------------------------------------
+ * Everything the client sends behind a converging target waits here, in
+ * order, so a click can never apply while the pointer is still flying
+ * to the place it was aimed at.
+ */
+static void mga_ptr_qclear(MGAState *s)
+{
+    s->ptr.qhead = 0;
+    s->ptr.qlen = 0;
+}
+
+static MGAPtrVerb *mga_ptr_qpush(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+    MGAPtrVerb *v;
+
+    if (p->qlen >= PTR_QMAX) {
+        /* Overflow means the guest has stopped absorbing input entirely.
+         * Drop the OLDEST: the newest target is the one the visitor's
+         * cursor is actually at. */
+        v = &p->q[p->qhead];
+        if (v->seq) {
+            mga_ptr_send(s, "%" PRIu64 " ERR overflow", v->seq);
+        }
+        p->qhead = (p->qhead + 1) % PTR_QMAX;
+        p->qlen--;
+    }
+    v = &p->q[(p->qhead + p->qlen) % PTR_QMAX];
+    p->qlen++;
+    memset(v, 0, sizeof(*v));
+    return v;
+}
+
+static void mga_ptr_qpop(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    if (p->qlen) {
+        p->qhead = (p->qhead + 1) % PTR_QMAX;
+        p->qlen--;
+    }
+}
+
+/* ---- control-law helpers -------------------------------------------- */
+
+/*
+ * Size one step.  `eff` is the error with in-flight pixels removed,
+ * `raw` the measured error.  A step may never oppose the measured error
+ * -- an over-estimated in-flight balance must cost a window of waiting,
+ * never a backwards move -- and the gain margin keeps a full-gain guest
+ * short of the target rather than past it.
+ */
+static int mga_ptr_step_counts(MGAState *s, int eff, int raw, double g)
+{
+    MGAPtrLoop *p = &s->ptr;
+    int c;
+
+    if (abs(eff) <= (int)p->dead) {
+        return 0;
+    }
+    if (g < 0.05) {
+        g = 0.05;
+    }
+    c = (int)trunc((double)eff / (g * PTR_GAIN_MARGIN));
+    if (c == 0) {
+        c = (eff > 0) ? 1 : -1;   /* sub-gain residue: one count is the
+                                   * smallest motion the wire can express */
+    }
+    if ((c > 0 && raw <= 0) || (c < 0 && raw >= 0)) {
+        return 0;
+    }
+    return MAX(-(int)p->move_step, MIN((int)p->move_step, c));
+}
+
+/* Per-axis sign-reversal counter behind the oscillation latch. */
+static bool mga_ptr_osc(int c, int *lastsign, uint32_t *flips)
+{
+    int sign;
+
+    if (c == 0) {
+        return false;
+    }
+    sign = (c > 0) ? 1 : -1;
+    if (*lastsign != 0 && sign != *lastsign) {
+        (*flips)++;
+    }
+    *lastsign = sign;
+    return *flips >= PTR_OSC_FLIPS;
+}
+
+/*
+ * Gain learning, closed-loop safe: the loop's ACCURACY never depends on
+ * g, only its speed, so this is a cheap EMA over the last step's
+ * observed/issued ratio.  ASYMMETRIC on purpose -- a step only partly
+ * absorbed reads LOW, and a gain estimated too low over-issues, the one
+ * direction the no-overshoot rule forbids.  So g rises fast, falls slow.
+ */
+static void mga_ptr_learn_gain(MGAState *s, char ax, int c, int d,
+                               bool lo_edge, bool hi_edge, double *g)
+{
+    double r;
+
+    if (abs(c) < PTR_GAIN_MIN_COUNTS || lo_edge || hi_edge) {
+        return;   /* too small to measure, or the guest clamped: that is a
+                   * lower bound, not a measurement */
+    }
+    r = (double)d / (double)c;
+    if (r < PTR_GAIN_LO || r > PTR_GAIN_HI) {
+        return;   /* partial absorption or a glyph step: corrupt sample */
+    }
+    *g += ((r > *g) ? PTR_GAIN_ALPHA_UP : PTR_GAIN_ALPHA_DOWN) * (r - *g);
+    mga_ptr_trace(s, "gain %c obs=%.3f g=%.3f", ax, r, *g);
+}
+
+/*
+ * Book what the registers moved by since the last window against what
+ * was issued, and decay the in-flight balance.  A gain OVER-estimate
+ * self-clears here instead of parking a phantom balance in front of the
+ * loop forever.
+ */
+static void mga_ptr_observe(MGAState *s, int rx, int ry, bool trusted)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    if (p->obs_valid) {
+        int dx = rx - p->obs_x;
+        int dy = ry - p->obs_y;
+
+        if (dx || dy) {
+            p->awaiting = false;
+            p->await_windows = 0;
+        }
+        p->infl_x -= dx;
+        p->infl_y -= dy;
+        if (trusted) {
+            mga_ptr_learn_gain(s, 'x', p->last_cx, dx,
+                               rx <= PTR_GAIN_EDGE_MARGIN,
+                               rx >= mga_ptr_surf_w(s) - 1 - PTR_GAIN_EDGE_MARGIN,
+                               &p->gx);
+            mga_ptr_learn_gain(s, 'y', p->last_cy, dy,
+                               ry <= PTR_GAIN_EDGE_MARGIN,
+                               ry >= mga_ptr_surf_h(s) - 1 - PTR_GAIN_EDGE_MARGIN,
+                               &p->gy);
+        }
+    }
+    p->infl_x *= PTR_INFL_DECAY;
+    p->infl_y *= PTR_INFL_DECAY;
+    p->obs_x = rx;
+    p->obs_y = ry;
+    p->obs_valid = true;
+    p->last_cx = 0;
+    p->last_cy = 0;
+    if (trusted) {
+        p->bel_x = rx;
+        p->bel_y = ry;
+    }
+}
+
+/*
+ * Shift the hotspot and keep the observer honest: the pointer estimate
+ * is reading + hot, so observe() must see the step added back to the raw
+ * reading delta, or it books a sprite jump as pointer motion.
+ */
+static void mga_ptr_hot_shift(MGAState *s, int nx, int ny)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    if (abs(nx) > PTR_SPRITE_MAX || abs(ny) > PTR_SPRITE_MAX) {
+        /* A hotspot lives inside the 64x64 sprite. Nothing should be able to
+         * propose otherwise; if something does, it is not a hotspot. */
+        mga_ptr_trace(s, "hotspot %d,%d out of the sprite -- refused", nx, ny);
+        return;
+    }
+    if (nx == p->hot_x && ny == p->hot_y) {
+        return;
+    }
+    mga_ptr_trace(s, "hot %d,%d -> %d,%d", p->hot_x, p->hot_y, nx, ny);
+    p->obs_x -= nx - p->hot_x;
+    p->obs_y -= ny - p->hot_y;
+    p->hot_x = nx;
+    p->hot_y = ny;
+    p->hot_dirty = true;    /* ... and the at-rest pass owes it a correction */
+    p->hot_seen++;
+}
+
+/*
+ * THE GLYPH SAMPLER: the hotspot is read, or it is not known.
+ *
+ * The registers hold the cursor SPRITE's origin, so the reading is
+ * `pointer - hotspot`, and the hotspot is different for every glyph X
+ * installs. Measured on this desktop: the CDE root window's X_cursor is a
+ * saltire whose hotspot is its CENTRE, (7,7); the desktop backdrop's pointer
+ * sits at (7,1); Netscape's pointing hand puts its hotspot on the fingertip.
+ * Drive the READING onto the target with the wrong hotspot and both the drawn
+ * cursor and the click land up to 7 px from the visitor's mouse.
+ *
+ * ONE fact names a hotspot on this guest, and it is the SCREEN CLAMP: the X
+ * server pins the pointer at 0 (or at W-1), so whatever the registers then
+ * read is its negation, on that axis, exactly. mga_ptr_home forces one at
+ * connect, and mga_ptr_step takes one whenever a visitor's target sits on an
+ * edge -- which is what the deliberate over-clamp in there is for.
+ *
+ * THE OTHER FACT DOES NOT EXIST HERE, and the record of why is worth more than
+ * the code that tried it. On irix a glyph swap forces a compensating write to
+ * the cursor register with the pointer standing still, and that write IS the
+ * hotspot delta; the module reads it off a device accumulator. The same idea
+ * was built here and it cannot work, for a reason particular to this guest:
+ * X installs the new glyph the instant the pointer CROSSES a window border,
+ * which is always mid-flight, so the compensating write and the commanded
+ * motion are one register delta and nothing can separate them. Traced live --
+ * every swap on this desktop, without exception, arrives while the loop is
+ * still stepping. Running the delta anyway behind a "the loop has been quiet
+ * for two windows" test did exactly what irix warns of: it booked the guest's
+ * own lagging motion as hotspot and walked the offset to -67 px in one sweep.
+ * So there is no delta path here. A glyph no clamp has named is UNKNOWN.
+ *
+ * What makes that survivable is that the shape signature is also the glyph's
+ * NAME. A glyph has to be measured once, ever: every later swap back to it is
+ * a table lookup, and exact. Until then the previous glyph's value is carried
+ * -- the smallest wrong answer available, and bounded by the sprite -- and
+ * `hot_exact=0` in STAT says so out loud instead of pretending.
+ */
+static uint64_t mga_ptr_shape_sig(MGAState *s)
+{
+    uint32_t addr = (((uint32_t)s->xreg[MGA_XCURADDH] << 8) |
+                     s->xreg[MGA_XCURADDL]) << 10;
+    const uint8_t *p;
+    uint64_t sig;
+    int i;
+
+    if (addr + 1024 > s->vga.vram_size) {
+        return 0;
+    }
+    p = s->vga.vram_ptr + addr;
+    sig = 1469598103934665603ULL ^ addr;            /* FNV-1a, 64-bit */
+    for (i = 0; i < 1024; i++) {
+        sig = (sig ^ p[i]) * 1099511628211ULL;
+    }
+    return sig;
+}
+
+/* Remember this glyph's hotspot under its signature. Newest wins on a
+ * collision: a later exact measurement is later evidence, not a duplicate. */
+static void mga_ptr_hot_record(MGAState *s, uint64_t sig, int hx, int hy)
+{
+    MGAPtrLoop *p = &s->ptr;
+    uint32_t i, slot = p->hot_next;
+
+    for (i = 0; i < PTR_HOT_SLOTS; i++) {
+        if (p->hot_tab[i].valid && p->hot_tab[i].sig == sig) {
+            slot = i;
+            break;
+        }
+    }
+    if (i == PTR_HOT_SLOTS) {
+        p->hot_next = (p->hot_next + 1) % PTR_HOT_SLOTS;
+    }
+    p->hot_tab[slot].sig = sig;
+    p->hot_tab[slot].hx = hx;
+    p->hot_tab[slot].hy = hy;
+    p->hot_tab[slot].valid = true;
+    mga_ptr_trace(s, "glyph %016" PRIx64 " hotspot %d,%d recorded", sig, hx, hy);
+}
+
+static bool mga_ptr_hot_lookup(MGAState *s, uint64_t sig, int *hx, int *hy)
+{
+    MGAPtrLoop *p = &s->ptr;
+    uint32_t i;
+
+    for (i = 0; i < PTR_HOT_SLOTS; i++) {
+        if (p->hot_tab[i].valid && p->hot_tab[i].sig == sig) {
+            *hx = p->hot_tab[i].hx;
+            *hy = p->hot_tab[i].hy;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void mga_ptr_glyph_sample(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+    uint64_t sig;
+    int rx, ry, hx, hy;
+
+    if (!p->track_hotspot || p->homing) {
+        return;
+    }
+    if (!mga_ptr_reading(s, &rx, &ry)) {
+        return;
+    }
+    sig = mga_ptr_shape_sig(s);
+    if (!p->sig_valid) {
+        p->cur_sig = sig;
+        p->sig_valid = true;
+        return;
+    }
+    if (sig == p->cur_sig) {
+        return;
+    }
+
+    /* --- a swap --- */
+    p->cur_sig = sig;
+    p->hot_seen++;
+    if (mga_ptr_hot_lookup(s, sig, &hx, &hy)) {
+        mga_ptr_hot_shift(s, hx, hy);       /* measured before: exact */
+        p->hot_exact = true;
+    } else {
+        /*
+         * Never named by a clamp. Fall back to ZERO -- the sprite's own origin
+         * -- and not to the previous glyph's value, which is the mistake this
+         * used to make. The one glyph a clamp can always name here is the CDE
+         * root window's X_cursor, and it is the ATYPICAL one: a centred
+         * saltire, hotspot (7,7). Every other glyph on this desktop puts its
+         * hotspot at the sprite origin -- measured by walking the commanded
+         * pixel across the Netscape window's left frame and watching which
+         * glyph X installs: the frame's cursor appears at reading 9 against a
+         * frame that starts at screen x=10, and the page's at reading 24
+         * against a page that starts at x=25. Carrying the X_cursor's 7 into
+         * them put the visitor's mouse 7 px INSIDE the arrow instead of on its
+         * tip, and made the pointer jitter at every window border, because the
+         * reading shifted under a hotspot that did not.
+         *
+         * Zero is the neutral prior -- "the sprite origin is the pointer until
+         * the guest says otherwise" -- not an inference from samples, and
+         * `hot_exact=0` still says it has not been measured. A clamp under
+         * this glyph replaces it with the fact.
+         */
+        mga_ptr_trace(s, "swap to glyph %016" PRIx64
+                      " no clamp has named -- hotspot reset to 0,0", sig);
+        mga_ptr_hot_shift(s, 0, 0);
+        p->hot_exact = false;
+    }
+}
+
+/* ---- targets --------------------------------------------------------- */
+
+static void mga_ptr_target_reset(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    p->windows = 0;
+    p->osc_sx = p->osc_sy = 0;
+    p->osc_nx = p->osc_ny = 0;
+}
+
+static void mga_ptr_epoch(MGAState *s, int x, int y, uint64_t seq)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    p->ta_x = MAX(0, MIN(mga_ptr_surf_w(s) - 1, x));
+    p->ta_y = MAX(0, MIN(mga_ptr_surf_h(s) - 1, y));
+    p->ta_seq = seq;
+    p->ta_active = true;
+    mga_ptr_target_reset(s);
+    mga_ptr_trace(s, "target %d,%d seq=%" PRIu64, p->ta_x, p->ta_y, seq);
+}
+
+static void mga_ptr_drain(MGAState *s);
+
+/*
+ * Finish the in-flight target.  Its VALUE is latched on a clean finish,
+ * so the at-rest pass knows where the visitor last aimed; a GIVE-UP does
+ * not latch -- a pointer freed from a modal grab must be able to try
+ * again.
+ */
+static void mga_ptr_accept(MGAState *s, int ex, int ey, bool gaveup)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    if (!gaveup) {
+        p->latch_x = p->ta_x;
+        p->latch_y = p->ta_y;
+        p->latch_valid = true;
+    }
+    p->ta_active = false;
+    p->awaiting = false;
+    p->await_windows = 0;
+    p->converged += !gaveup;
+    p->gaveup += gaveup;
+    p->res_x = ex;
+    p->res_y = ey;
+    mga_ptr_drain(s);
+}
+
+/* Release what queued behind the finished target, up to the next target. */
+static void mga_ptr_drain(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    while (!p->ta_active && !p->homing && p->qlen) {
+        MGAPtrVerb *v = &p->q[p->qhead];
+        int64_t now;
+
+        switch (v->kind) {
+        case 'b':
+            now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+            if (now < p->btn_ready_ns) {
+                return;   /* the pacer owes the previous edge its gap: a
+                           * DOWN+UP pair inside one 10 ms PS/2 sample is
+                           * a click the guest never sees */
+            }
+            mga_ptr_inject_btn(s, v->btn, v->down);
+            p->btn_ready_ns = now +
+                (int64_t)p->btn_gap_ms * SCALE_MS;
+            if (v->seq) {
+                mga_ptr_send(s, "%" PRIu64 " OK", v->seq);
+            }
+            mga_ptr_qpop(s);
+            break;
+        case 's':
+            if (v->seq) {
+                mga_ptr_send(s, "%" PRIu64 " OK", v->seq);
+            }
+            mga_ptr_qpop(s);
+            break;
+        default: {
+            int x = v->x, y = v->y;
+            uint64_t seq = v->seq;
+            mga_ptr_qpop(s);
+            mga_ptr_epoch(s, x, y, seq);
+            break;
+        }
+        }
+    }
+}
+
+/*
+ * One window of the loop.  At most one step is issued per window and
+ * never while the previous correction is still unobserved -- by the next
+ * window it is in the registers and the fresh error already accounts for
+ * it.
+ */
+static void mga_ptr_step(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+    int rx, ry, ex, ey, cx, cy;
+    bool have, ox, oy, edge_x, edge_y, want_pin;
+
+    if (!p->ta_active || p->homing) {
+        return;
+    }
+    have = mga_ptr_reading(s, &rx, &ry);
+    if (!have) {
+        /* No trustworthy reading (the sprite is disabled): run this
+         * window off the belief so a hidden pointer still moves, and let
+         * the give-up cap bound it. */
+        rx = p->bel_x;
+        ry = p->bel_y;
+    }
+    mga_ptr_observe(s, rx, ry, have);
+
+    ex = p->ta_x - rx - p->hot_x;
+    ey = p->ta_y - ry - p->hot_y;
+
+    /*
+     * A target ON AN EDGE, under a glyph whose hotspot has never been
+     * measured, is the one chance this loop gets to measure it -- so it is
+     * spent rather than converged away. Landing 1 px short of the edge is
+     * "arrived" by the deadband, and the pointer then never pins, so the clamp
+     * below never fires and the glyph stays unknown for the whole session.
+     * Push PAST the edge instead: the overshoot dies against the guest's own
+     * clamp, which is the entire point, and the visitor sees nothing because
+     * the pointer is already there.
+     */
+    edge_x = p->ta_x <= 1 || p->ta_x >= mga_ptr_surf_w(s) - 2;
+    edge_y = p->ta_y <= 1 || p->ta_y >= mga_ptr_surf_h(s) - 2;
+    want_pin = !p->hot_exact && have &&
+               ((edge_x && p->pinned_x < PTR_PIN_WINDOWS) ||
+                (edge_y && p->pinned_y < PTR_PIN_WINDOWS));
+
+    if (!want_pin && abs(ex) <= (int)p->dead && abs(ey) <= (int)p->dead) {
+        mga_ptr_trace(s, "converge r=%d,%d err=%d,%d g=%.2f,%.2f",
+                      rx, ry, ex, ey, p->gx, p->gy);
+        mga_ptr_accept(s, ex, ey, false);
+        return;
+    }
+    if (++p->windows > p->tries) {
+        mga_ptr_trace(s, "giveup r=%d,%d err=%d,%d w=%u",
+                      rx, ry, ex, ey, p->windows);
+        mga_ptr_accept(s, ex, ey, true);
+        return;
+    }
+    /*
+     * NEVER ISSUE WHILE THE LAST CORRECTION IS STILL ON THE WIRE. `infl` is
+     * a decaying ESTIMATE of what has not landed yet, and under TCG the guest
+     * takes several windows to absorb a PS/2 packet, walk it through X's
+     * acceleration and write the cursor register -- so the estimate decays
+     * away long before the motion arrives, and the loop re-issues counts that
+     * are already in flight. Measured on this guest before this gate existed:
+     * two windows of -48 counts against an unchanged reading, then a 288 px
+     * overshoot and an oscillation that accepted 30 px off target. The
+     * registers moving is the ONLY evidence that a step has landed; until
+     * they do, this window observes and waits. The give-up cap above still
+     * bounds it, so a guest that has stopped absorbing input cannot wedge the
+     * loop.
+     */
+    if (p->awaiting) {
+        /*
+         * ... but a step that never lands must not own the loop for ever.
+         * Against the guest's screen clamp the registers NEVER move again, so
+         * the gate would stay shut, the pointer would stop responding to every
+         * later target, and the station would look wedged -- measured exactly
+         * that way the first time this gate existed without the bound. After
+         * this many windows the counts are gone: absorbed by a clamp, or
+         * dropped. Declare them landed and let the loop measure again.
+         */
+        if (++p->await_windows <= PTR_AWAIT_MAX) {
+            return;
+        }
+        p->awaiting = false;
+        p->await_windows = 0;
+        p->infl_x = p->infl_y = 0.0;
+    }
+
+    cx = mga_ptr_step_counts(s, ex - (int)llround(p->infl_x), ex, p->gx);
+    cy = mga_ptr_step_counts(s, ey - (int)llround(p->infl_y), ey, p->gy);
+    if (want_pin) {
+        /* Deliberate over-clamp: the no-opposing-step rule is about not
+         * extrapolating the pointer ahead of real movement, and there is no
+         * movement left to get ahead of. */
+        if (edge_x) {
+            cx = (p->ta_x <= 1) ? -(int)p->move_step : (int)p->move_step;
+        }
+        if (edge_y) {
+            cy = (p->ta_y <= 1) ? -(int)p->move_step : (int)p->move_step;
+        }
+    }
+
+    ox = mga_ptr_osc(cx, &p->osc_sx, &p->osc_nx);
+    oy = mga_ptr_osc(cy, &p->osc_sy, &p->osc_ny);
+    if (!want_pin && (ox || oy) &&
+        abs(ex) <= PTR_OSC_MAX_ERR && abs(ey) <= PTR_OSC_MAX_ERR) {
+        /* The correction keeps reversing: that is a reading which moves
+         * WITH the pointer, not a pointer that keeps missing its target.
+         * Accept where we are. */
+        mga_ptr_trace(s, "osc-accept r=%d,%d err=%d,%d flips=%u,%u",
+                      rx, ry, ex, ey, p->osc_nx, p->osc_ny);
+        mga_ptr_accept(s, ex, ey, false);
+        return;
+    }
+    if (cx == 0 && cy == 0) {
+        return;   /* everything outstanding is already on the wire */
+    }
+    /*
+     * OPPORTUNISTIC CLAMP CALIBRATION. A glyph's hotspot is only ever
+     * observable at a screen clamp or at an at-rest glyph swap, and on this
+     * guest the at-rest swap never happens: X installs the new glyph the
+     * instant the pointer crosses a window border, which is always mid-flight,
+     * so the compensating write and the commanded motion are one register
+     * delta and cannot be told apart. Traced live -- every swap on this
+     * desktop, without exception.
+     *
+     * The clamp does happen, constantly, because visitors sweep to the edges.
+     * When the target is ON an edge and the loop has pushed at it for several
+     * windows with the registers refusing to move, the X server has pinned the
+     * pointer at 0 or at W-1, and that names the CURRENT glyph's hotspot
+     * outright on that axis, with no model of anything in it. Per axis,
+     * because a sweep into the left edge says nothing about y.
+     */
+    if (cx && ((cx > 0) - (cx < 0)) == p->last_cx_dir && rx == p->pin_rx) {
+        p->pinned_x++;
+    } else {
+        p->pinned_x = 0;
+    }
+    if (cy && ((cy > 0) - (cy < 0)) == p->last_cy_dir && ry == p->pin_ry) {
+        p->pinned_y++;
+    } else {
+        p->pinned_y = 0;
+    }
+    p->pin_rx = rx;
+    p->pin_ry = ry;
+    p->last_cx_dir = (cx > 0) - (cx < 0);
+    p->last_cy_dir = (cy > 0) - (cy < 0);
+    if (have && p->sig_valid) {
+        int nhx = p->hot_x, nhy = p->hot_y;
+        bool got = false;
+
+        if (p->pinned_x >= PTR_PIN_WINDOWS) {
+            if (p->ta_x <= 1 && cx < 0) {
+                nhx = -rx;
+                got = true;
+            } else if (p->ta_x >= mga_ptr_surf_w(s) - 2 && cx > 0) {
+                nhx = mga_ptr_surf_w(s) - 1 - rx;
+                got = true;
+            }
+        }
+        if (p->pinned_y >= PTR_PIN_WINDOWS) {
+            if (p->ta_y <= 1 && cy < 0) {
+                nhy = -ry;
+                got = true;
+            } else if (p->ta_y >= mga_ptr_surf_h(s) - 2 && cy > 0) {
+                nhy = mga_ptr_surf_h(s) - 1 - ry;
+                got = true;
+            }
+        }
+        if (got && abs(nhx) <= PTR_SPRITE_MAX && abs(nhy) <= PTR_SPRITE_MAX &&
+            (nhx != p->hot_x || nhy != p->hot_y || !p->hot_exact)) {
+            mga_ptr_trace(s, "clamp calibration: hot %d,%d -> %d,%d",
+                          p->hot_x, p->hot_y, nhx, nhy);
+            mga_ptr_hot_shift(s, nhx, nhy);
+            mga_ptr_hot_record(s, p->cur_sig, p->hot_x, p->hot_y);
+            p->hot_exact = true;
+        }
+    }
+
+    p->last_cx = cx;
+    p->last_cy = cy;
+    p->awaiting = true;
+    p->await_windows = 0;
+    p->infl_x += cx * p->gx;
+    p->infl_y += cy * p->gy;
+    p->bel_x += (int)llround(cx * p->gx);
+    p->bel_y += (int)llround(cy * p->gy);
+    p->steps++;
+    mga_ptr_inject_rel(s, cx, cy);
+    mga_ptr_trace(s, "step r=%d,%d err=%d,%d c=%d,%d infl=%.1f,%.1f w=%u",
+                  rx, ry, ex, ey, cx, cy, p->infl_x, p->infl_y, p->windows);
+}
+
+/*
+ * The at-rest observer.  X swaps the cursor glyph when the pointer
+ * ARRIVES somewhere -- after the loop has converged and gone idle -- so
+ * without a pass that runs with no target active, a hotspot change would
+ * stay invisible until the pointer next moved, which is exactly when it
+ * is too late.  On a detected shift the last accepted target is re-armed
+ * internally (seq 0, so the client is told nothing about a target it
+ * never sent) and the pointer goes back under the visitor's cursor.
+ */
+static void mga_ptr_rest(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+    int rx, ry, lx, ly;
+    bool dirty;
+
+    if (p->ta_active || p->homing || p->qlen) {
+        return;
+    }
+    if (!mga_ptr_reading(s, &rx, &ry)) {
+        return;
+    }
+    lx = p->latch_x;
+    ly = p->latch_y;
+    dirty = p->hot_dirty && p->latch_valid;
+    p->hot_dirty = false;
+    mga_ptr_observe(s, rx, ry, true);
+    if (dirty && (abs(lx - rx - p->hot_x) > (int)p->dead ||
+                  abs(ly - ry - p->hot_y) > (int)p->dead)) {
+        mga_ptr_epoch(s, lx, ly, 0);
+    }
+}
+
+
+/*
+ * ONE-TIME CLAMP CALIBRATION, and the only thing on this station that is not
+ * already a fact the device reports.
+ *
+ * The registers hold the cursor SPRITE's origin, biased by the DAC's own
+ * constant and offset by whatever the current glyph's hotspot is. Neither
+ * number is readable, and their SUM is exactly what stands between the
+ * reading and the pointer. But the guest's own screen clamp names it: shove
+ * the pointer past the top-left corner and the X server pins it at 0,0 --
+ * that is the one event where guest and model agree by construction -- so
+ * whatever the registers then read is the negation of the whole offset, at
+ * once, without a model of either half.
+ *
+ * (irix rejected clamp calibration because it could not FORCE a clamp: it had
+ * to wait for a visitor to shove the pointer into an edge, and it misfired on
+ * a merely-stalled loop. Here the calibration is a deliberate burst at
+ * connect, with no visitor and nothing else moving the pointer, so neither
+ * objection applies. Glyph swaps after this are tracked incrementally by
+ * mga_ptr_glyph_sample.)
+ *
+ * Runs once per client connection, and on an explicit HOME. It is NOT re-run
+ * on an idle-pause resume or a loadvm: the registers restore with the machine
+ * and the offset with them, and yanking a watching visitor's pointer into a
+ * corner mid-session would be a worse bug than the one it fixed.
+ */
+static void mga_ptr_home(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+    int rx, ry;
+
+    if (!p->homing) {
+        return;
+    }
+    if (!mga_ptr_reading(s, &rx, &ry)) {
+        /* the sprite is disabled: nothing to calibrate against */
+        if (++p->home_windows > PTR_HOME_MAX_WINDOWS) {
+            p->homing = false;
+            mga_ptr_trace(s, "home abandoned: cursor disabled");
+        }
+        return;
+    }
+    if (p->home_windows && rx == p->home_last_x && ry == p->home_last_y) {
+        p->home_still++;
+    } else {
+        p->home_still = 0;
+    }
+    p->home_last_x = rx;
+    p->home_last_y = ry;
+
+    if (p->home_still >= PTR_HOME_STILL) {
+        /* Pinned. pointer == 0,0, so hot == -reading, whole and exact. */
+        p->hot_x = -rx;
+        p->hot_y = -ry;
+        p->obs_x = rx;
+        p->obs_y = ry;
+        p->bel_x = rx;
+        p->bel_y = ry;
+        p->obs_valid = true;
+        p->infl_x = p->infl_y = 0.0;
+        p->awaiting = false;
+        p->homing = false;
+        p->hot_seen++;
+        p->hot_exact = true;
+        p->cur_sig = mga_ptr_shape_sig(s);
+        p->sig_valid = true;
+        mga_ptr_hot_record(s, p->cur_sig, p->hot_x, p->hot_y);
+        mga_ptr_trace(s, "home done r=%d,%d -> hot=%d,%d (%u windows)",
+                      rx, ry, p->hot_x, p->hot_y, p->home_windows);
+        mga_ptr_drain(s);
+        return;
+    }
+    if (++p->home_windows > PTR_HOME_MAX_WINDOWS) {
+        p->homing = false;
+        mga_ptr_trace(s, "home gave up at r=%d,%d; hotspot left at %d,%d",
+                      rx, ry, p->hot_x, p->hot_y);
+        mga_ptr_drain(s);
+        return;
+    }
+    /* Deliberately over-clamped: the overshoot has to DIE against the guest's
+     * edge, which is the whole point. */
+    mga_ptr_inject_rel(s, -(int)p->move_step, -(int)p->move_step);
+}
+
+static void mga_ptr_home_start(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    p->homing = true;
+    p->home_windows = 0;
+    p->home_still = 0;
+    p->home_last_x = p->home_last_y = INT_MIN;
+    p->ta_active = false;
+}
+
+static void mga_ptr_tick(void *opaque)
+{
+    MGAState *s = opaque;
+
+    mga_ptr_home(s);
+    mga_ptr_glyph_sample(s);
+    mga_ptr_step(s);
+    mga_ptr_rest(s);
+    mga_ptr_drain(s);
+    timer_mod(&s->ptr.timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+              (int64_t)s->ptr.window_ms * SCALE_MS);
+}
+
+/*
+ * Re-base every derived belief against the registers.  Run on reset, on
+ * a fresh connection and after a loadvm: the restored CURPOSX/Y ARE the
+ * restored pointer, but nothing in the stream says which GLYPH is in
+ * force, so the hotspot starts at zero and the first swap re-measures it.
+ */
+static void mga_ptr_rebase(MGAState *s)
+{
+    MGAPtrLoop *p = &s->ptr;
+    int rx, ry;
+
+    p->ta_active = false;
+    p->windows = 0;
+    p->infl_x = p->infl_y = 0.0;
+    p->gx = p->gy = p->gain_x100 / 100.0;
+    p->last_cx = p->last_cy = 0;
+    p->awaiting = false;
+    p->await_windows = 0;
+    p->osc_sx = p->osc_sy = 0;
+    p->osc_nx = p->osc_ny = 0;
+    p->hot_x = p->hot_y = 0;
+    p->hot_dirty = false;
+    p->sig_valid = false;
+    p->hot_exact = false;
+    p->pinned_x = p->pinned_y = 0;
+    p->last_cx_dir = p->last_cy_dir = 0;
+    p->pin_rx = p->pin_ry = INT_MIN;
+    memset(p->hot_tab, 0, sizeof(p->hot_tab));
+    p->hot_next = 0;
+    p->latch_valid = false;
+    p->homing = false;
+    p->btn_ready_ns = 0;
+    mga_ptr_qclear(s);
+    mga_ptr_reading(s, &rx, &ry);
+    p->obs_x = p->bel_x = rx;
+    p->obs_y = p->bel_y = ry;
+    p->obs_valid = true;
+}
+
+/* ---- the wire -------------------------------------------------------- */
+
+static void mga_ptr_line(MGAState *s, char *line)
+{
+    MGAPtrLoop *p = &s->ptr;
+    char verb[16];
+    unsigned long long seq = 0;
+    int x = 0, y = 0, n;
+    MGAPtrVerb *v;
+
+    n = sscanf(line, "%llu %15s %d %d", &seq, verb, &x, &y);
+    if (n < 2) {
+        mga_ptr_send(s, "0 ERR parse");
+        return;
+    }
+
+    if (!strcmp(verb, "MOVEA")) {
+        if (n < 4) {
+            mga_ptr_send(s, "%llu ERR movea-args", seq);
+            return;
+        }
+        x = MAX(0, MIN(mga_ptr_surf_w(s) - 1, x));
+        y = MAX(0, MIN(mga_ptr_surf_h(s) - 1, y));
+        /* A target acks on ACCEPT, not on convergence: the client streams
+         * targets faster than they converge and must never block on one. */
+        mga_ptr_send(s, "%llu OK", seq);
+        if (!p->ta_active && !p->homing) {
+            mga_ptr_epoch(s, x, y, seq);
+        } else if (p->ta_active && !p->qlen) {
+            /* Nothing deferred behind the pending target: LATEST WINS. A
+             * moving finger streams targets faster than they converge, so
+             * a changed value gets a fresh window budget and a fresh
+             * oscillation history. */
+            if (x != p->ta_x || y != p->ta_y) {
+                p->ta_x = x;
+                p->ta_y = y;
+                mga_ptr_target_reset(s);
+            }
+            p->ta_seq = seq;
+        } else {
+            v = &p->q[(p->qhead + p->qlen - 1) % PTR_QMAX];
+            if (v->kind == 't') {
+                v->x = x;      /* coalesce onto the queued tail target */
+                v->y = y;
+                v->seq = seq;
+            } else {
+                v = mga_ptr_qpush(s);
+                v->kind = 't';
+                v->x = x;
+                v->y = y;
+                v->seq = seq;
+            }
+        }
+        return;
+    }
+
+    if ((strlen(verb) == 5 && !strncmp(verb, "DOWN", 4)) ||
+        (strlen(verb) == 3 && !strncmp(verb, "UP", 2))) {
+        bool down = verb[0] == 'D';
+        int btn = verb[down ? 4 : 2] - '1';
+
+        if (btn < 0 || btn > 2) {
+            mga_ptr_send(s, "%llu ERR button", seq);
+            return;
+        }
+        v = mga_ptr_qpush(s);
+        v->kind = 'b';
+        v->btn = btn;
+        v->down = down;
+        v->seq = seq;
+        mga_ptr_drain(s);
+        return;
+    }
+
+    if (!strcmp(verb, "HOME")) {
+        mga_ptr_home_start(s);
+        mga_ptr_send(s, "%llu OK", seq);
+        return;
+    }
+
+    if (!strcmp(verb, "SYNC")) {
+        if (!p->qlen && !p->ta_active && !p->homing) {
+            mga_ptr_send(s, "%llu OK", seq);
+        } else {
+            v = mga_ptr_qpush(s);
+            v->kind = 's';
+            v->seq = seq;
+        }
+        return;
+    }
+
+    if (!strcmp(verb, "STAT")) {
+        int rx, ry;
+        bool have = mga_ptr_reading(s, &rx, &ry);
+
+        mga_ptr_send(s, "%llu OK r=%d,%d trust=%d hot=%d,%d g=%.2f,%.2f "
+                     "q=%u active=%d homing=%d res=%d,%d mode=%u cadd=0x%x "
+                     "sig=%016" PRIx64 " hot_exact=%d "
+                     "steps=%" PRIu64
+                     " conv=%" PRIu64 " giveup=%" PRIu64 " hot_seen=%" PRIu64,
+                     seq, rx, ry, have, p->hot_x, p->hot_y, p->gx, p->gy,
+                     p->qlen, p->ta_active, p->homing, p->res_x, p->res_y,
+                     s->xreg[MGA_XCURCTRL] & 3,
+                     ((((uint32_t)s->xreg[MGA_XCURADDH] << 8) |
+                       s->xreg[MGA_XCURADDL]) << 10),
+                     p->cur_sig, p->hot_exact,
+                     p->steps, p->converged, p->gaveup, p->hot_seen);
+        return;
+    }
+
+    mga_ptr_send(s, "%llu ERR verb", seq);
+}
+
+static int mga_ptr_can_read(void *opaque)
+{
+    MGAState *s = opaque;
+
+    return PTR_RXMAX - s->ptr.rxlen;
+}
+
+static void mga_ptr_read(void *opaque, const uint8_t *buf, int size)
+{
+    MGAState *s = opaque;
+    MGAPtrLoop *p = &s->ptr;
+    int i;
+
+    for (i = 0; i < size; i++) {
+        char c = buf[i];
+
+        if (c == '\n' || c == '\r') {
+            if (p->rxlen) {
+                p->rx[p->rxlen] = '\0';
+                mga_ptr_line(s, p->rx);
+                p->rxlen = 0;
+            }
+            continue;
+        }
+        if (p->rxlen < PTR_RXMAX - 1) {
+            p->rx[p->rxlen++] = c;
+        } else {
+            p->rxlen = 0;   /* oversized line: drop it whole */
+            mga_ptr_send(s, "0 ERR line-too-long");
+        }
+    }
+}
+
+static void mga_ptr_event(void *opaque, QEMUChrEvent event)
+{
+    MGAState *s = opaque;
+
+    switch (event) {
+    case CHR_EVENT_OPENED:
+        s->ptr.open = true;
+        s->ptr.rxlen = 0;
+        mga_ptr_rebase(s);
+        mga_ptr_home_start(s);
+        mga_ptr_send(s, "HELLO mgaptr/1 caps=movea,btn,sync,stat,home surf=%dx%d",
+                     mga_ptr_surf_w(s), mga_ptr_surf_h(s));
+        mga_ptr_trace(s, "client connected");
+        break;
+    case CHR_EVENT_CLOSED:
+        /* A dropped client must not strand a button down on the guest. */
+        mga_ptr_release_all(s);
+        s->ptr.open = false;
+        s->ptr.rxlen = 0;
+        mga_ptr_qclear(s);
+        s->ptr.ta_active = false;
+        s->ptr.homing = false;
+        mga_ptr_trace(s, "client gone");
+        break;
+    default:
+        break;
+    }
+}
+
+/*
+ * The window runs on VIRTUAL time, so it stops with the guest.  A paused
+ * station (idle-pause is aggressive here: the guest is TCG and burns a
+ * core whenever it runs) would otherwise leave every queued verb unacked
+ * until the daemon declared the backend dead, so a stop finishes them
+ * where they stand and a resume re-bases against the registers.
+ */
+static void mga_ptr_vm_state(void *opaque, bool running, RunState state)
+{
+    MGAState *s = opaque;
+
+    if (!s->ptr.enabled) {
+        return;
+    }
+    if (running) {
+        mga_ptr_rebase(s);
+        timer_mod(&s->ptr.timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                  (int64_t)s->ptr.window_ms * SCALE_MS);
+    } else {
+        timer_del(&s->ptr.timer);
+        while (s->ptr.qlen) {
+            MGAPtrVerb *v = &s->ptr.q[s->ptr.qhead];
+            if (v->seq) {
+                mga_ptr_send(s, "%" PRIu64 " OK paused=1", v->seq);
+            }
+            mga_ptr_qpop(s);
+        }
+        s->ptr.ta_active = false;
+    }
+}
+
 
 static uint8_t mga_xreg_read(MGAState *s, uint8_t idx)
 {
@@ -545,6 +1879,12 @@ static void mga_dac_write(MGAState *s, uint32_t off, uint8_t val)
         mga_xreg_write(s, s->xindex, val);
         break;
     case MGA_DAC_CURPOSXL ... MGA_DAC_CURPOSYH:
+        if (s->ptr.trace_pos) {
+            static const char *nm[4] = { "XL", "XH", "YL", "YH" };
+            fprintf(stderr, "mgapos: %s=0x%02x pos=%d,%d sig=%016llx\n",
+                    nm[off & 3], val, mga_cursor_x(s), mga_cursor_y(s),
+                    (unsigned long long)mga_ptr_shape_sig(s));
+        }
         s->xreg[0xF0 + (off & 3)] = val;
         break;
     default:
@@ -1352,6 +2692,9 @@ static void mga_reset(DeviceState *d)
     s->hw_cursor_size = 0;
     s->hw_cursor_last_x = 0;
     s->hw_cursor_last_y = 0;
+    if (s->ptr.enabled) {
+        mga_ptr_rebase(s);
+    }
     timer_del(&s->vline_timer);
 }
 
@@ -1380,6 +2723,12 @@ static int mga_post_load(void *opaque, int version_id)
     /* Force a full redraw so the palette is re-converted for every pixel. */
     if (s->vga.con) {
         graphic_hw_invalidate(s->vga.con);
+    }
+    /* The restored CURPOSX/Y ARE the restored pointer, but nothing in the
+     * stream says which cursor GLYPH is in force, so the closed loop
+     * re-bases its hotspot and its beliefs against the registers. */
+    if (s->ptr.enabled) {
+        mga_ptr_rebase(s);
     }
     return 0;
 }
@@ -1477,6 +2826,21 @@ static void mga_realize(PCIDevice *dev, Error **errp)
 
     timer_init_ns(&s->vline_timer, QEMU_CLOCK_VIRTUAL,
                   mga_vline_timer_cb, s);
+
+    /* Closed-loop pointer: armed only when a control chardev was given. */
+    if (qemu_chr_fe_backend_connected(&s->ptr.chr)) {
+        if (s->ptr.window_ms < 1) {
+            s->ptr.window_ms = 1;
+        }
+        s->ptr.enabled = true;
+        timer_init_ns(&s->ptr.timer, QEMU_CLOCK_VIRTUAL, mga_ptr_tick, s);
+        s->ptr.vmse = qemu_add_vm_change_state_handler(mga_ptr_vm_state, s);
+        qemu_chr_fe_set_handlers(&s->ptr.chr, mga_ptr_can_read, mga_ptr_read,
+                                 mga_ptr_event, NULL, s, NULL, true);
+        mga_ptr_rebase(s);
+        timer_mod(&s->ptr.timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                  (int64_t)s->ptr.window_ms * SCALE_MS);
+    }
 }
 
 static void mga_exit(PCIDevice *dev)
@@ -1484,6 +2848,13 @@ static void mga_exit(PCIDevice *dev)
     MGAState *s = MGA(dev);
 
     timer_del(&s->vline_timer);
+    if (s->ptr.enabled) {
+        timer_del(&s->ptr.timer);
+        if (s->ptr.vmse) {
+            qemu_del_vm_change_state_handler(s->ptr.vmse);
+            s->ptr.vmse = NULL;
+        }
+    }
     graphic_console_close(s->vga.con);
 }
 
@@ -1497,6 +2868,22 @@ static void mga_init(Object *obj)
 static const Property mga_properties[] = {
     DEFINE_PROP_UINT32("vram_size_mb", MGAState, vga.vram_size_mb, 8),
     DEFINE_EDID_PROPERTIES(MGAState, ddc.edid_info),
+    /* Closed-loop 1:1 pointer. Unset ptrctl = the device behaves exactly as
+     * it did before: no timer, no handlers, no injection. */
+    DEFINE_PROP_CHR("ptrctl", MGAState, ptr.chr),
+    DEFINE_PROP_UINT32("ptr-window-ms", MGAState, ptr.window_ms, 16),
+    DEFINE_PROP_UINT32("ptr-deadband", MGAState, ptr.dead, 1),
+    DEFINE_PROP_UINT32("ptr-move-step", MGAState, ptr.move_step, 48),
+    DEFINE_PROP_UINT32("ptr-tries", MGAState, ptr.tries, 40),
+    DEFINE_PROP_UINT32("ptr-btn-gap-ms", MGAState, ptr.btn_gap_ms, 24),
+    /* Seed for the step sizer, in hundredths of a px per PS/2 count. Too HIGH
+     * only costs windows; too LOW overshoots, the one direction the
+     * no-overshoot rule forbids -- so the default is the measured value on
+     * this guest (AIX X acceleration, ~3 px/count), not 1. */
+    DEFINE_PROP_UINT32("ptr-gain-x100", MGAState, ptr.gain_x100, 300),
+    DEFINE_PROP_BOOL("ptr-hotspot", MGAState, ptr.track_hotspot, true),
+    DEFINE_PROP_BOOL("ptr-trace", MGAState, ptr.trace, false),
+    DEFINE_PROP_BOOL("ptr-trace-pos", MGAState, ptr.trace_pos, false),
 };
 
 static void mga_class_init(ObjectClass *klass, const void *data)
