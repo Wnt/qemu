@@ -23,6 +23,11 @@
 #include "trace.h"
 #include "framebuffer.h"
 #include "qom/object.h"
+#include "chardev/char-fe.h"
+#include "hw/core/qdev-properties-system.h"
+#include "qemu/timer.h"
+#include "ui/input.h"
+#include "system/runstate.h"
 
 #define TYPE_ARTIST "artist"
 OBJECT_DECLARE_SIMPLE_TYPE(ARTISTState, ARTIST)
@@ -34,6 +39,9 @@ struct vram_buffer {
     unsigned int width;
     unsigned int height;
 };
+
+#define PTR_GLYPH_SLOTS     16
+#define PTR_EDGE_CAP        64
 
 struct ARTISTState {
     SysBusDevice parent_obj;
@@ -100,6 +108,62 @@ struct ARTISTState {
     uint32_t font_write_pos_y;
 
     int draw_line_pattern;
+
+    /*
+     * ---- closed-loop pointer engine (kernel-hive) ----
+     * DELIBERATELY ABSENT FROM vmstate_artist. Every field is re-derived from
+     * registers the guest owns or from the live control socket, so arming the
+     * loop does not change the migration format and the station's golden
+     * checkpoint keeps restoring. Do not migrate any of it.
+     */
+    CharFrontend ptrctl;
+    QEMUTimer *ptr_timer;
+    bool ptr_open;
+    char ptr_rx[256];
+    int ptr_rxlen;
+
+    uint32_t ptr_window_ms;
+    uint32_t ptr_deadband;
+    uint32_t ptr_move_step;
+    uint32_t ptr_tries;
+    uint32_t ptr_btn_gap_ms;
+    uint32_t ptr_gain_x100;
+    bool ptr_trace;
+    bool ptr_trace_pos;
+
+    bool ptr_have_target;
+    int ptr_tx, ptr_ty;
+    int ptr_win;
+    int ptr_osc;
+    int ptr_sign_x, ptr_sign_y;
+    int ptr_infl_x, ptr_infl_y;
+    int ptr_wait;
+    int ptr_last_x, ptr_last_y;
+    bool ptr_have_last;
+
+    int ptr_hot_x, ptr_hot_y;
+    bool ptr_hot_exact;
+    uint32_t ptr_last_sig;
+    uint32_t ptr_glyph_sig[PTR_GLYPH_SLOTS];
+    int ptr_glyph_hx[PTR_GLYPH_SLOTS];
+    int ptr_glyph_hy[PTR_GLYPH_SLOTS];
+
+    int ptr_home_state;
+    int ptr_home_win;
+    int ptr_home_kick;
+    int ptr_home_still;
+    int ptr_home_lx, ptr_home_ly;
+    bool ptr_home_moved;
+
+    uint8_t ptr_edge_btn[PTR_EDGE_CAP];
+    bool ptr_edge_down[PTR_EDGE_CAP];
+    uint64_t ptr_edge_seq[PTR_EDGE_CAP];
+    unsigned ptr_edge_head, ptr_edge_tail;
+    uint32_t ptr_btn_state;
+    int64_t ptr_edge_gap_until;
+
+    uint32_t ptr_reaims;
+    uint32_t ptr_giveups;
 };
 
 /* hardware allows up to 64x64, but we emulate 32x32 only. */
@@ -1372,6 +1436,647 @@ static void artist_create_buffer(ARTISTState *s, const char *name,
     *offset += buf->size;
 }
 
+
+/*
+ * ============================================================================
+ * kernel-hive: closed-loop 1:1 absolute pointer over the Artist hardware cursor
+ * ============================================================================
+ *
+ * WHY THIS EXISTS. The daemon (streamhost) knows where the visitor pointed, in
+ * guest pixels. The B160L has no absolute pointer path at all -- LASI PS/2,
+ * relative only, no USB, no tablet -- so an absolute target can only be reached
+ * by injecting relative counts and CHECKING WHERE THEY LANDED. HP-UX 10.20's X
+ * server drives the Artist HARDWARE cursor, which means the guest continuously
+ * publishes its own idea of the pointer position into CURSOR_POS/CURSOR_CTRL.
+ * That is a sensor, so the control loop can close INSIDE the emulator:
+ *
+ *     reading = artist_get_cursor_pos()          (the DRAWN SPRITE ORIGIN)
+ *     pointer = reading + hotspot
+ *     err     = target - pointer - in_flight
+ *     counts  = trunc(err / (gain * margin)), capped, ONE step per window
+ *
+ * `absolute: true` on this station is therefore EARNED BY MEASUREMENT, not
+ * provided by a device.
+ *
+ * READ THE POSITION THROUGH artist_get_cursor_pos(), NEVER FROM THE RAW
+ * REGISTERS. This is not a style preference, it is the bug that this port found
+ * the hard way. CURSOR_CTRL's low nibbles ((&0xf0)>>4, &0x0f) are an OFFSET that
+ * the accessor subtracts to reach the drawn sprite origin; they are NOT a
+ * hotspot. A loop closed on a private decode of CURSOR_POS lands every target a
+ * constant 8 px to the left, and -- this is the dangerous part -- the raw
+ * register and the framebuffer still agree with each other EXACTLY at every
+ * target, err +0,+0. Two observers agreeing is not proof; only the COMMANDED
+ * TARGET is the third observer that separates "self-consistent" from "correct".
+ *
+ * NOTHING HERE IS IN VMSTATE. Every field below is derived from registers the
+ * guest already owns or from the live socket, so vmstate_artist is untouched and
+ * the station's golden checkpoint keeps restoring. Do not add a field here to
+ * vmstate_artist -- that would force a golden re-bake for no gain.
+ *
+ * SINGLE INJECTOR. While the control socket is connected this engine OWNS the
+ * guest pointer. No rel bridge, no QMP input-send-event, no labctl pointer
+ * helper may run at the same time, or the two injectors fight and the loop reads
+ * motion it did not cause.
+ *
+ * Wire dialect `artistptr/1`, spoken over a -chardev socket:
+ *      <- HELLO artistptr/1 caps=movea,btn,sync,stat surf=1280x1024
+ *      -> <seq> MOVEA <x> <y>        <- <seq> OK   (acks on target-ACCEPT)
+ *      -> <seq> DOWN1|UP1|DOWN2|...  <- <seq> OK   (acks when the edge APPLIES)
+ *      -> <seq> SYNC | STAT          <- <seq> OK [k=v ...]
+ */
+
+#define PTR_SPRITE_MAX      NGLE_MAX_SPRITE_SIZE  /* hotspot must live in here */
+#define PTR_HOME_STILL      3       /* windows of stillness that mean "pinned" */
+#define PTR_HOME_MAX_WIN    96      /* give-up bound, NOT a success criterion  */
+#define PTR_INFL_DECAY      2       /* in-flight halves each window            */
+#define PTR_OSC_LIMIT       6
+/*
+ * HARD IN-FLIGHT GATE. Never issue a step while the previous one is still on
+ * the wire. TCG hppa absorbs PS/2 packets on its own schedule, so a window can
+ * elapse with the last step unconsumed; without this gate the loop keeps
+ * issuing against a stale reading, overshoots, reverses, trips the oscillation
+ * latch and gives up several pixels short. BOUNDED, because an unbounded wait
+ * wedges the pointer wherever the guest legitimately cannot move it -- at a
+ * screen clamp the step never lands and the loop would never issue again.
+ */
+#define PTR_INFL_GATE_WIN   6       /* sign reversals that mean "accept here"  */
+
+enum {
+    PTR_HOME_IDLE = 0,
+    PTR_HOME_KICK,      /* move AWAY from the corner so homing can prove motion */
+    PTR_HOME_RUN,
+    PTR_HOME_DONE,
+};
+
+/*
+ * A content signature over both cursor sprite planes. A glyph swap changes it,
+ * which is what lets a per-glyph hotspot be measured ONCE per glyph and then
+ * recalled, instead of being re-derived (or, far worse, guessed) on every aim.
+ */
+static uint32_t artist_ptr_glyph_sig(ARTISTState *s)
+{
+    uint32_t h = 2166136261u;
+    int b, i;
+
+    for (b = 0; b < 2; b++) {
+        struct vram_buffer *buf =
+            &s->vram_buffer[b ? ARTIST_BUFFER_CURSOR2 : ARTIST_BUFFER_CURSOR1];
+        if (!buf->data) {
+            continue;
+        }
+        for (i = 0; i < PTR_SPRITE_MAX * PTR_SPRITE_MAX; i++) {
+            h = (h ^ buf->data[i]) * 16777619u;
+        }
+    }
+    return h ? h : 1;
+}
+
+/* The sprite origin as the DEVICE MODEL itself computes it. See the warning. */
+static bool artist_ptr_reading(ARTISTState *s, int *x, int *y)
+{
+    if (!cursor_visible(s) || s->cursor_pos == 0) {
+        return false;               /* a hidden cursor's registers stop tracking */
+    }
+    artist_get_cursor_pos(s, x, y);
+    return true;
+}
+
+static bool artist_ptr_hot_sane(int hx, int hy)
+{
+    /*
+     * A hotspot lives INSIDE the sprite. Bound it AT EVERY PATH THAT RECORDS
+     * ONE, not only where one is used: an engine that can store an impossible
+     * value and then report it as exact is an engine whose health signal is
+     * worthless precisely when it matters.
+     */
+    return hx > -PTR_SPRITE_MAX && hx < PTR_SPRITE_MAX &&
+           hy > -PTR_SPRITE_MAX && hy < PTR_SPRITE_MAX;
+}
+
+static void artist_ptr_glyph_store(ARTISTState *s, uint32_t sig, int hx, int hy)
+{
+    int i;
+
+    if (!artist_ptr_hot_sane(hx, hy)) {
+        return;
+    }
+    for (i = 0; i < PTR_GLYPH_SLOTS; i++) {
+        if (s->ptr_glyph_sig[i] == sig || s->ptr_glyph_sig[i] == 0) {
+            s->ptr_glyph_sig[i] = sig;
+            s->ptr_glyph_hx[i] = hx;
+            s->ptr_glyph_hy[i] = hy;
+            return;
+        }
+    }
+    s->ptr_glyph_sig[0] = sig;      /* bank full: evict slot 0 */
+    s->ptr_glyph_hx[0] = hx;
+    s->ptr_glyph_hy[0] = hy;
+}
+
+static bool artist_ptr_glyph_recall(ARTISTState *s, uint32_t sig, int *hx, int *hy)
+{
+    int i;
+
+    for (i = 0; i < PTR_GLYPH_SLOTS; i++) {
+        if (s->ptr_glyph_sig[i] == sig) {
+            *hx = s->ptr_glyph_hx[i];
+            *hy = s->ptr_glyph_hy[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+static void G_GNUC_PRINTF(2, 3) artist_ptr_send(ARTISTState *s,
+                                               const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    int n;
+
+    if (!s->ptr_open) {
+        return;
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        qemu_chr_fe_write_all(&s->ptrctl, (const uint8_t *)buf, MIN(n, (int)sizeof(buf) - 1));
+    }
+}
+
+static void artist_ptr_ack(ARTISTState *s, uint64_t seq)
+{
+    artist_ptr_send(s, "%" PRIu64 " OK\n", seq);
+}
+
+static void artist_ptr_inject(ARTISTState *s, int dx, int dy)
+{
+    if (dx) {
+        qemu_input_queue_rel(s->con, INPUT_AXIS_X, dx);
+    }
+    if (dy) {
+        qemu_input_queue_rel(s->con, INPUT_AXIS_Y, dy);
+    }
+    if (dx || dy) {
+        qemu_input_event_sync();
+    }
+}
+
+/*
+ * Apply one pending button edge. Edges are deferred behind a converging target
+ * so a click can never be delivered while the pointer is still walking -- that
+ * is how a press-at-A / motion / release-at-B DRAG gets manufactured out of an
+ * ordinary click.
+ */
+static void artist_ptr_apply_edges(ARTISTState *s)
+{
+    static const InputButton map[3] = {
+        INPUT_BUTTON_LEFT, INPUT_BUTTON_MIDDLE, INPUT_BUTTON_RIGHT
+    };
+    int64_t now = qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL);
+
+    while (s->ptr_edge_head != s->ptr_edge_tail) {
+        int i = s->ptr_edge_head % PTR_EDGE_CAP;
+
+        if (now < s->ptr_edge_gap_until) {
+            return;                 /* pace consecutive edges apart */
+        }
+        qemu_input_queue_btn(s->con, map[s->ptr_edge_btn[i]], s->ptr_edge_down[i]);
+        qemu_input_event_sync();
+        s->ptr_btn_state = s->ptr_edge_down[i]
+            ? (s->ptr_btn_state | (1u << s->ptr_edge_btn[i]))
+            : (s->ptr_btn_state & ~(1u << s->ptr_edge_btn[i]));
+        if (s->ptr_trace) {
+            qemu_log("artist-ptr: edge btn%d %s applied\n",
+                     s->ptr_edge_btn[i] + 1, s->ptr_edge_down[i] ? "DOWN" : "UP");
+        }
+        artist_ptr_ack(s, s->ptr_edge_seq[i]);   /* ack when it APPLIES */
+        s->ptr_edge_gap_until = now + s->ptr_btn_gap_ms;
+        s->ptr_edge_head++;
+    }
+}
+
+/*
+ * HOME: drive the pointer into the top-left corner so the X server clamps it to
+ * a KNOWN position (0,0), which makes the reading the negated hotspot.
+ *
+ * A QUIESCENT SENSOR IS NOT A CONVERGED SENSOR. An unchanged reading means
+ * "pinned against the edge" only if the reading CHANGED FIRST. Stillness from a
+ * standing start is indistinguishable from a guest that has simply not consumed
+ * the injected motion yet, and concluding on it records `hot = -(wherever the
+ * pointer happened to be)` -- an impossible value, reported as exact. So:
+ * require proof of motion, THEN require stillness.
+ */
+/*
+ * KICK: shove the pointer AWAY from the corner before homing into it.
+ *
+ * Homing proves it is pinned by watching the reading stop changing, which is
+ * only meaningful if the reading changed in the first place. A session that
+ * reconnects while the pointer is ALREADY parked in the corner -- the ordinary
+ * case, since the previous session left it there -- would otherwise see perfect
+ * stillness from the very first window, never satisfy proof-of-motion, and burn
+ * its whole budget before honestly reporting "I do not know". One kick outward
+ * makes the subsequent stillness mean something.
+ */
+static void artist_ptr_home_kick(ARTISTState *s)
+{
+    int x, y, step = (int)s->ptr_move_step;
+
+    if (!artist_ptr_reading(s, &x, &y)) {
+        return;
+    }
+    if (s->ptr_home_kick > 0 &&
+        (x != s->ptr_home_lx || y != s->ptr_home_ly)) {
+        s->ptr_home_state = PTR_HOME_RUN;   /* it moved; now home for real */
+        s->ptr_home_win = 0;
+        s->ptr_home_still = 0;
+        s->ptr_home_moved = false;
+        return;
+    }
+    if (++s->ptr_home_kick >= 16) {
+        s->ptr_home_state = PTR_HOME_RUN;   /* proceed; RUN still proves motion */
+        s->ptr_home_win = 0;
+        s->ptr_home_still = 0;
+        s->ptr_home_moved = false;
+        return;
+    }
+    s->ptr_home_lx = x;
+    s->ptr_home_ly = y;
+    artist_ptr_inject(s, step, step);
+}
+
+static void artist_ptr_home_window(ARTISTState *s)
+{
+    int x, y, step;
+    bool at_corner, changed;
+
+    if (!artist_ptr_reading(s, &x, &y)) {
+        return;
+    }
+    changed = s->ptr_home_win > 0 &&
+              (x != s->ptr_home_lx || y != s->ptr_home_ly);
+    if (changed) {
+        s->ptr_home_moved = true;       /* the guest really did move it */
+        s->ptr_home_still = 0;
+    } else if (s->ptr_home_win > 0) {
+        s->ptr_home_still++;
+    }
+    s->ptr_home_lx = x;
+    s->ptr_home_ly = y;
+
+    /*
+     * "Pinned" is VERIFIED, not inferred. At the top-left clamp the pointer is
+     * (0,0), so the sprite origin must be -hotspot -- which lives inside the
+     * sprite. If the reading is not within a sprite of the corner we are not
+     * pinned, however still the sensor looks: under TCG the guest consumes PS/2
+     * packets on its own schedule, and three windows can pass with motion still
+     * queued. That is exactly how a home step records an impossible hotspot and
+     * then reports it as exact. Requiring proof of MOTION and proof of PLACE
+     * makes both failure modes non-conclusive instead of silently wrong.
+     */
+    at_corner = abs(x) < PTR_SPRITE_MAX && abs(y) < PTR_SPRITE_MAX;
+
+    if (s->ptr_home_moved && at_corner &&
+        s->ptr_home_still >= PTR_HOME_STILL) {
+        int hx = -x, hy = -y;
+
+        if (artist_ptr_hot_sane(hx, hy)) {
+            s->ptr_hot_x = hx;
+            s->ptr_hot_y = hy;
+            s->ptr_hot_exact = true;
+            s->ptr_last_sig = artist_ptr_glyph_sig(s);
+            artist_ptr_glyph_store(s, s->ptr_last_sig, hx, hy);
+        } else {
+            s->ptr_hot_x = s->ptr_hot_y = 0;
+            s->ptr_hot_exact = false;
+        }
+        s->ptr_home_state = PTR_HOME_DONE;
+        return;
+    }
+    if (++s->ptr_home_win >= PTR_HOME_MAX_WIN) {
+        /* Never converged. Say "I do not know" instead of inventing a number. */
+        s->ptr_hot_x = s->ptr_hot_y = 0;
+        s->ptr_hot_exact = false;
+        s->ptr_home_state = PTR_HOME_DONE;
+        return;
+    }
+
+    /*
+     * Pace the drive to the guest rather than to the window: inject when the
+     * last step was visibly consumed, and nudge again if we have stalled short
+     * of the corner. Injecting every window instead floods the PS/2 queue with
+     * thousands of counts that keep shoving at the clamp long after homing.
+     */
+    if (s->ptr_home_still != 0 && s->ptr_home_still < 2) {
+        return;
+    }
+    if (at_corner && s->ptr_home_still) {
+        return;                         /* pinned: let stillness accumulate */
+    }
+    step = -(int)s->ptr_move_step;
+    artist_ptr_inject(s, step, step);
+}
+
+/*
+ * A glyph swap moves the DRAWN SPRITE without moving the POINTER: the X server
+ * re-states the position for the new hotspot. So while the pointer is at rest,
+ *      d(origin) = -d(hotspot)
+ * and the compensation can be read straight off the write. This is the
+ * continuity rule; sampling the registers per window instead would walk the
+ * hotspot away over a single sweep.
+ */
+static void artist_ptr_track_glyph(ARTISTState *s, int x, int y)
+{
+    uint32_t sig = artist_ptr_glyph_sig(s);
+    int hx, hy;
+
+    if (sig == s->ptr_last_sig) {
+        return;
+    }
+    if (s->ptr_last_sig != 0 && s->ptr_hot_exact && s->ptr_have_last) {
+        if (artist_ptr_glyph_recall(s, sig, &hx, &hy)) {
+            s->ptr_hot_x = hx;
+            s->ptr_hot_y = hy;
+        } else {
+            hx = s->ptr_hot_x - (x - s->ptr_last_x);
+            hy = s->ptr_hot_y - (y - s->ptr_last_y);
+            if (artist_ptr_hot_sane(hx, hy)) {
+                s->ptr_hot_x = hx;
+                s->ptr_hot_y = hy;
+                artist_ptr_glyph_store(s, sig, hx, hy);
+            } else {
+                s->ptr_hot_exact = false;   /* honest: this glyph is unmeasured */
+            }
+        }
+    }
+    s->ptr_last_sig = sig;
+}
+
+static void artist_ptr_window(void *opaque)
+{
+    ARTISTState *s = opaque;
+    int x, y, px, py, ex, ey, sx, sy, cap;
+
+    timer_mod(s->ptr_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + s->ptr_window_ms);
+
+    if (!s->ptr_open) {
+        return;
+    }
+    if (s->ptr_home_state == PTR_HOME_KICK) {
+        artist_ptr_home_kick(s);
+        return;
+    }
+    if (s->ptr_home_state == PTR_HOME_RUN) {
+        artist_ptr_home_window(s);
+        return;
+    }
+    if (!artist_ptr_reading(s, &x, &y)) {
+        return;                     /* untrusted this window; do NOT guess */
+    }
+
+    if (!s->ptr_have_target) {
+        /* At rest is the only safe moment to learn a glyph's hotspot. */
+        artist_ptr_track_glyph(s, x, y);
+        s->ptr_last_x = x;
+        s->ptr_last_y = y;
+        s->ptr_have_last = true;
+        artist_ptr_apply_edges(s);
+        return;
+    }
+
+    /* Retire in-flight by pixels we OBSERVED move, then decay the remainder. */
+    if (s->ptr_have_last) {
+        s->ptr_infl_x -= (x - s->ptr_last_x);
+        s->ptr_infl_y -= (y - s->ptr_last_y);
+    }
+    s->ptr_infl_x /= PTR_INFL_DECAY;
+    s->ptr_infl_y /= PTR_INFL_DECAY;
+    s->ptr_last_x = x;
+    s->ptr_last_y = y;
+    s->ptr_have_last = true;
+
+    px = x + s->ptr_hot_x;
+    py = y + s->ptr_hot_y;
+    ex = s->ptr_tx - px - (int)s->ptr_infl_x;
+    ey = s->ptr_ty - py - (int)s->ptr_infl_y;
+
+    if (s->ptr_trace_pos) {
+        qemu_log("artist-ptr: r=%d,%d hot=%d,%d(%s) p=%d,%d t=%d,%d e=%d,%d w=%d\n",
+                 x, y, s->ptr_hot_x, s->ptr_hot_y,
+                 s->ptr_hot_exact ? "exact" : "UNKNOWN",
+                 px, py, s->ptr_tx, s->ptr_ty, ex, ey, s->ptr_win);
+    }
+
+    /*
+     * Converged means AT REST at the target, not merely predicted to arrive.
+     * The error already has the in-flight estimate subtracted, so a target can
+     * look reached while counts are still queued in the guest's PS/2 buffer --
+     * and those counts then carry the pointer PAST it, typically into a screen
+     * clamp where it cannot come back on its own. Settling the in-flight before
+     * declaring victory costs a couple of windows and is the difference between
+     * landing on the pixel and landing near it.
+     */
+    if (abs(ex) <= (int)s->ptr_deadband && abs(ey) <= (int)s->ptr_deadband &&
+        !s->ptr_infl_x && !s->ptr_infl_y) {
+        s->ptr_have_target = false;
+        s->ptr_infl_x = s->ptr_infl_y = 0;
+        artist_ptr_apply_edges(s);
+        return;
+    }
+
+    /*
+     * OSCILLATION LATCH. Repeated sign reversal means the READING is moving
+     * with the pointer (a glyph swap under the cursor), not that we keep
+     * missing: accept where we are rather than hunt forever.
+     */
+    if ((ex > 0) != (s->ptr_sign_x > 0) || (ey > 0) != (s->ptr_sign_y > 0)) {
+        s->ptr_osc++;
+    }
+    s->ptr_sign_x = ex;
+    s->ptr_sign_y = ey;
+    if (s->ptr_osc >= PTR_OSC_LIMIT || ++s->ptr_win >= (int)s->ptr_tries) {
+        s->ptr_have_target = false;
+        s->ptr_giveups++;
+        s->ptr_infl_x = s->ptr_infl_y = 0;
+        artist_ptr_apply_edges(s);
+        return;
+    }
+
+    if ((s->ptr_infl_x || s->ptr_infl_y) && ++s->ptr_wait < PTR_INFL_GATE_WIN) {
+        return;                     /* last step still unconsumed; do not stack */
+    }
+
+    /*
+     * GAIN IS A STEP SIZER ONLY. A wrong gain costs convergence speed, never
+     * accuracy, because the next window re-reads the truth. The margin keeps
+     * the step just short of the error so we never extrapolate ahead of real
+     * observed movement.
+     */
+    sx = (ex * 100) / (int)(s->ptr_gain_x100 * 110 / 100);
+    sy = (ey * 100) / (int)(s->ptr_gain_x100 * 110 / 100);
+    cap = (int)s->ptr_move_step;
+    sx = MAX(-cap, MIN(cap, sx));
+    sy = MAX(-cap, MIN(cap, sy));
+    if (sx == 0 && ex) {
+        sx = ex > 0 ? 1 : -1;       /* never a step OPPOSING the measured error */
+    }
+    if (sy == 0 && ey) {
+        sy = ey > 0 ? 1 : -1;
+    }
+    if (s->ptr_trace) {
+        qemu_log("artist-ptr: step %+d,%+d (err %+d,%+d, infl %+d,%+d)\n",
+                 sx, sy, ex, ey, s->ptr_infl_x, s->ptr_infl_y);
+    }
+    artist_ptr_inject(s, sx, sy);
+    s->ptr_infl_x += sx;
+    s->ptr_infl_y += sy;
+    s->ptr_wait = 0;
+}
+
+static void artist_ptr_line(ARTISTState *s, char *line)
+{
+    uint64_t seq = 0;
+    char verb[16];
+    int x, y, n;
+
+    if (s->ptr_trace) {
+        qemu_log("artist-ptr: rx %s\n", line);
+    }
+    if (sscanf(line, "%" SCNu64 " %15s%n", &seq, verb, &n) < 2) {
+        return;
+    }
+    if (!strcmp(verb, "MOVEA")) {
+        if (sscanf(line + n, " %d %d", &x, &y) == 2) {
+            s->ptr_tx = MAX(0, MIN((int)s->width - 1, x));
+            s->ptr_ty = MAX(0, MIN((int)s->height - 1, y));
+            s->ptr_have_target = true;
+            s->ptr_win = 0;
+            s->ptr_osc = 0;
+            s->ptr_wait = 0;
+            s->ptr_reaims++;
+        }
+        artist_ptr_ack(s, seq);             /* acks on ACCEPT, not on arrival */
+    } else if (!strncmp(verb, "DOWN", 4) || !strncmp(verb, "UP", 2)) {
+        bool down = verb[0] == 'D';
+        int btn = (down ? verb[4] : verb[2]) - '1';
+        int slot;
+
+        if (btn < 0 || btn > 2) {
+            artist_ptr_ack(s, seq);
+            return;
+        }
+        if (s->ptr_edge_tail - s->ptr_edge_head >= PTR_EDGE_CAP) {
+            artist_ptr_ack(s, seq);         /* bounded queue: drop, never block */
+            return;
+        }
+        slot = s->ptr_edge_tail % PTR_EDGE_CAP;
+        s->ptr_edge_btn[slot] = btn;
+        s->ptr_edge_down[slot] = down;
+        s->ptr_edge_seq[slot] = seq;
+        s->ptr_edge_tail++;
+    } else if (!strcmp(verb, "STAT")) {
+        int rx = 0, ry = 0;
+        bool ok = artist_ptr_reading(s, &rx, &ry);
+
+        artist_ptr_send(s,
+            "%" PRIu64 " OK reading=%d,%d valid=%d hot=%d,%d hot_exact=%d "
+            "home=%s target=%d,%d aiming=%d gain=%u queue=%d reaims=%u "
+            "giveups=%u running=%d\n",
+            seq, rx, ry, ok, s->ptr_hot_x, s->ptr_hot_y, s->ptr_hot_exact,
+            s->ptr_home_state == PTR_HOME_DONE
+                ? (s->ptr_hot_exact ? "measured" : "UNKNOWN")
+                : (s->ptr_home_state == PTR_HOME_KICK ? "kick" : "running"),
+            s->ptr_tx, s->ptr_ty, s->ptr_have_target, s->ptr_gain_x100,
+            (int)(s->ptr_edge_tail - s->ptr_edge_head), s->ptr_reaims,
+            s->ptr_giveups, runstate_is_running());
+    } else {
+        artist_ptr_ack(s, seq);             /* SYNC and anything else */
+    }
+}
+
+static int artist_ptr_can_receive(void *opaque)
+{
+    ARTISTState *s = opaque;
+    return sizeof(s->ptr_rx) - s->ptr_rxlen - 1;
+}
+
+static void artist_ptr_receive(void *opaque, const uint8_t *buf, int size)
+{
+    ARTISTState *s = opaque;
+    int i;
+
+    for (i = 0; i < size; i++) {
+        if (buf[i] == '\n' || s->ptr_rxlen >= (int)sizeof(s->ptr_rx) - 1) {
+            s->ptr_rx[s->ptr_rxlen] = '\0';
+            if (s->ptr_rxlen) {
+                artist_ptr_line(s, s->ptr_rx);
+            }
+            s->ptr_rxlen = 0;
+        } else {
+            s->ptr_rx[s->ptr_rxlen++] = buf[i];
+        }
+    }
+}
+
+static void artist_ptr_event(void *opaque, QEMUChrEvent ev)
+{
+    ARTISTState *s = opaque;
+
+    switch (ev) {
+    case CHR_EVENT_OPENED:
+        s->ptr_open = true;
+        s->ptr_rxlen = 0;
+        s->ptr_have_target = false;
+        s->ptr_have_last = false;
+        s->ptr_edge_head = s->ptr_edge_tail = 0;
+        s->ptr_btn_state = 0;
+        s->ptr_last_sig = 0;
+        s->ptr_hot_exact = false;
+        s->ptr_hot_x = s->ptr_hot_y = 0;
+        /* Force ONE clamp per session so the hotspot is named, never guessed. */
+        s->ptr_home_state = PTR_HOME_KICK;
+        s->ptr_home_win = 0;
+        s->ptr_home_kick = 0;
+        s->ptr_home_still = 0;
+        s->ptr_home_moved = false;
+        artist_ptr_send(s, "HELLO artistptr/1 caps=movea,btn,sync,stat "
+                           "surf=%ux%u\n", s->width, s->height);
+        break;
+    case CHR_EVENT_CLOSED:
+        s->ptr_open = false;
+        s->ptr_have_target = false;
+        break;
+    default:
+        break;
+    }
+}
+
+static void artist_ptr_init(ARTISTState *s)
+{
+    if (!qemu_chr_fe_backend_connected(&s->ptrctl)) {
+        return;                     /* loop not armed; station runs dbus-rel */
+    }
+    qemu_chr_fe_set_handlers(&s->ptrctl, artist_ptr_can_receive,
+                             artist_ptr_receive, artist_ptr_event,
+                             NULL, s, NULL, true);
+    /*
+     * QEMU_CLOCK_VIRTUAL is deliberate: the window measures GUEST time, and the
+     * loop must not advance while the guest is not running -- it would burn its
+     * try budget against a pointer that cannot move. The consequence is that a
+     * paused guest acks nothing, which matters on this station more than on any
+     * other: hpuxvue starts `-loadvm golden -S` AND idle-auto-pauses after 60 s,
+     * so a returning visitor is the COMMON path, not an edge case. MOVEA acks on
+     * ACCEPT rather than on convergence precisely so that a pause cannot stall
+     * the daemon's ack pipeline; only button edges wait for the guest, and the
+     * daemon resumes it on input well inside the ack deadline.
+     */
+    s->ptr_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, artist_ptr_window, s);
+    timer_mod(s->ptr_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + s->ptr_window_ms);
+}
+
 static void artist_realizefn(DeviceState *dev, Error **errp)
 {
     ARTISTState *s = ARTIST(dev);
@@ -1424,6 +2129,8 @@ static void artist_realizefn(DeviceState *dev, Error **errp)
 
     s->con = graphic_console_init(dev, 0, &artist_ops, s);
     qemu_console_resize(s->con, s->width, s->height);
+
+    artist_ptr_init(s);
 }
 
 static int vmstate_artist_post_load(void *opaque, int version_id)
@@ -1482,6 +2189,26 @@ static const Property artist_properties[] = {
     DEFINE_PROP_UINT16("height",       ARTISTState, height, 1024),
     DEFINE_PROP_UINT16("depth",        ARTISTState, depth, 8),
     DEFINE_PROP_BOOL("disable",        ARTISTState, disable, false),
+    /*
+     * Closed-loop pointer. Absent `ptrctl` the engine never arms and the device
+     * behaves exactly as before, which is what makes the rollback two lines:
+     * drop `-global artist.ptrctl=` and set SH_INPUT_BACKEND=dbus-rel.
+     */
+    DEFINE_PROP_CHR("ptrctl",          ARTISTState, ptrctl),
+    DEFINE_PROP_UINT32("ptr-window-ms", ARTISTState, ptr_window_ms, 16),
+    DEFINE_PROP_UINT32("ptr-deadband", ARTISTState, ptr_deadband, 1),
+    DEFINE_PROP_UINT32("ptr-move-step", ARTISTState, ptr_move_step, 48),
+    DEFINE_PROP_UINT32("ptr-tries",    ARTISTState, ptr_tries, 90),
+    DEFINE_PROP_UINT32("ptr-btn-gap-ms", ARTISTState, ptr_btn_gap_ms, 24),
+    /*
+     * px per injected count x100. 100 == 1:1. The current golden actually shows
+     * ~1.9x (X pointer acceleration; see the station.env.fixture note), but this
+     * is only a STEP SIZER -- a wrong value costs convergence windows, never
+     * accuracy, because the next window re-reads the truth from the sensor.
+     */
+    DEFINE_PROP_UINT32("ptr-gain-x100", ARTISTState, ptr_gain_x100, 190),
+    DEFINE_PROP_BOOL("ptr-trace",      ARTISTState, ptr_trace, false),
+    DEFINE_PROP_BOOL("ptr-trace-pos",  ARTISTState, ptr_trace_pos, false),
 };
 
 static void artist_reset(DeviceState *qdev)
