@@ -210,6 +210,13 @@ typedef struct MGAPtrLoop {
     bool hot_dirty;
     uint64_t cur_sig;       /* signature of the sprite bytes plus its address */
     bool sig_valid;
+    /* The compensating write a glyph swap forces, recorded AT THE WRITE where
+     * no motion can be interleaved with it. Cumulative; the engine reads what
+     * happened since it last looked. */
+    uint64_t cs_seq, cs_last_seq;
+    int cs_dx, cs_dy, cs_last_dx, cs_last_dy;
+    bool grp_open, grp_swap;    /* a position write GROUP is in progress */
+    int grp_x, grp_y;           /* ... and the position it started from */
     bool hot_exact;         /* the current glyph's hotspot was MEASURED       */
     /* Opportunistic clamp calibration: windows spent pushing an axis whose
      * registers refuse to move, and the reading they refused at. */
@@ -1073,56 +1080,53 @@ static bool mga_ptr_hot_lookup(MGAState *s, uint64_t sig, int *hx, int *hy)
 static void mga_ptr_glyph_sample(MGAState *s)
 {
     MGAPtrLoop *p = &s->ptr;
-    uint64_t sig;
-    int rx, ry, hx, hy;
+    int dx, dy, hx, hy;
+    bool was_exact;
 
-    if (!p->track_hotspot || p->homing) {
+    if (!p->track_hotspot || p->cs_seq == p->cs_last_seq) {
         return;
     }
-    if (!mga_ptr_reading(s, &rx, &ry)) {
-        return;
-    }
-    sig = mga_ptr_shape_sig(s);
-    if (!p->sig_valid) {
-        p->cur_sig = sig;
-        p->sig_valid = true;
-        return;
-    }
-    if (sig == p->cur_sig) {
-        return;
-    }
-
-    /* --- a swap --- */
-    p->cur_sig = sig;
+    p->cs_last_seq = p->cs_seq;
+    dx = p->cs_dx - p->cs_last_dx;
+    dy = p->cs_dy - p->cs_last_dy;
+    p->cs_last_dx = p->cs_dx;
+    p->cs_last_dy = p->cs_dy;
     p->hot_seen++;
-    if (mga_ptr_hot_lookup(s, sig, &hx, &hy)) {
-        mga_ptr_hot_shift(s, hx, hy);       /* measured before: exact */
+
+    if (mga_ptr_hot_lookup(s, p->cur_sig, &hx, &hy)) {
+        /* A clamp named this glyph outright once; that beats any derivation. */
+        mga_ptr_hot_shift(s, hx, hy);
         p->hot_exact = true;
-    } else {
-        /*
-         * Never named by a clamp. Fall back to ZERO -- the sprite's own origin
-         * -- and not to the previous glyph's value, which is the mistake this
-         * used to make. The one glyph a clamp can always name here is the CDE
-         * root window's X_cursor, and it is the ATYPICAL one: a centred
-         * saltire, hotspot (7,7). Every other glyph on this desktop puts its
-         * hotspot at the sprite origin -- measured by walking the commanded
-         * pixel across the Netscape window's left frame and watching which
-         * glyph X installs: the frame's cursor appears at reading 9 against a
-         * frame that starts at screen x=10, and the page's at reading 24
-         * against a page that starts at x=25. Carrying the X_cursor's 7 into
-         * them put the visitor's mouse 7 px INSIDE the arrow instead of on its
-         * tip, and made the pointer jitter at every window border, because the
-         * reading shifted under a hotspot that did not.
-         *
-         * Zero is the neutral prior -- "the sprite origin is the pointer until
-         * the guest says otherwise" -- not an inference from samples, and
-         * `hot_exact=0` still says it has not been measured. A clamp under
-         * this glyph replaces it with the fact.
-         */
-        mga_ptr_trace(s, "swap to glyph %016" PRIx64
-                      " no clamp has named -- hotspot reset to 0,0", sig);
-        mga_ptr_hot_shift(s, 0, 0);
+        return;
+    }
+    if (abs(dx) > PTR_SPRITE_MAX || abs(dy) > PTR_SPRITE_MAX) {
+        /* A hotspot lives inside the 64x64 sprite, so this is not one. */
+        mga_ptr_trace(s, "swap d=%d,%d larger than the sprite -- ignored", dx, dy);
         p->hot_exact = false;
+        return;
+    }
+    /*
+     * CONTINUITY. A glyph swap does not move the pointer -- it only changes
+     * where the sprite is drawn relative to it -- so the hotspot must absorb
+     * the compensating write EXACTLY, and the believed pointer must come out
+     * unchanged. That is not an estimate of the new hotspot; it is the
+     * physical fact that nothing moved, and it is what stops the loop
+     * inventing an error at every window border.
+     *
+     * Getting this wrong is what the "magnet" was: with a guessed hotspot the
+     * swap shifted the believed pointer, the loop corrected, the correction
+     * re-crossed the border, the glyph swapped back. Captured live: 386 steps
+     * and 660 glyph flips in eight seconds against a target that never moved.
+     *
+     * The derivation is only as good as the hotspot it starts from, so it
+     * inherits `hot_exact` rather than claiming it -- and once a chain does
+     * start from a clamp, every glyph it reaches is exact and is remembered
+     * under its own signature.
+     */
+    was_exact = p->hot_exact;
+    mga_ptr_hot_shift(s, p->hot_x - dx, p->hot_y - dy);
+    if (was_exact) {
+        mga_ptr_hot_record(s, p->cur_sig, p->hot_x, p->hot_y);
     }
 }
 
@@ -1472,8 +1476,15 @@ static void mga_ptr_rest(MGAState *s)
     dirty = p->hot_dirty && p->latch_valid;
     p->hot_dirty = false;
     mga_ptr_observe(s, rx, ry, true);
-    if (dirty && (abs(lx - rx - p->hot_x) > (int)p->dead ||
-                  abs(ly - ry - p->hot_y) > (int)p->dead)) {
+    /*
+     * ... and only when the hotspot that moved the estimate was MEASURED. A
+     * re-aim is the loop moving the guest's pointer on its own authority; if
+     * the number behind it is a guess, that authority is not there, and the
+     * move is the first half of a magnet.
+     */
+    if (dirty && p->hot_exact &&
+        (abs(lx - rx - p->hot_x) > (int)p->dead ||
+         abs(ly - ry - p->hot_y) > (int)p->dead)) {
         p->reaims++;
         mga_ptr_trace(s, "rest re-aim latch=%d,%d r=%d,%d hot=%d,%d exact=%d "
                       "err=%d,%d n=%" PRIu64,
@@ -1615,6 +1626,9 @@ static void mga_ptr_rebase(MGAState *s)
     p->hot_dirty = false;
     p->sig_valid = false;
     p->hot_exact = false;
+    p->cs_seq = p->cs_last_seq = 0;
+    p->cs_dx = p->cs_dy = p->cs_last_dx = p->cs_last_dy = 0;
+    p->grp_open = p->grp_swap = false;
     p->pinned_x = p->pinned_y = 0;
     p->last_cx_dir = p->last_cy_dir = 0;
     p->pin_rx = p->pin_ry = INT_MIN;
@@ -1934,7 +1948,42 @@ static void mga_dac_write(MGAState *s, uint32_t off, uint8_t val)
                     nm[off & 3], val, mga_cursor_x(s), mga_cursor_y(s),
                     (unsigned long long)mga_ptr_shape_sig(s));
         }
+        /*
+         * THE COMPENSATING WRITE, CAUGHT AT THE WRITE. The DDX states the
+         * cursor position as a fixed group of four bytes -- XH, XL, YL, YH --
+         * and a glyph swap's compensation is ALWAYS a group of its own,
+         * never merged with a motion group. Measured over a captured magnet:
+         * 307 swap groups, every one a pure compensation, perfectly
+         * antisymmetric (b458->6f76 is -7,0 and 6f76->b458 is +7,0, 150 times
+         * each), while ordinary motion groups in the same capture carried
+         * deltas of 48, 144, 244 px and never a signature change.
+         *
+         * That separation is the whole thing. Sampling the registers once per
+         * engine window cannot see it -- the baseline is a window old and the
+         * guest's lagging motion is mixed in, which is exactly how an earlier
+         * attempt walked the hotspot to -67 px. Here the group boundary IS the
+         * isolation, so the delta is the hotspot change and nothing else.
+         */
+        if (s->ptr.enabled && s->ptr.track_hotspot) {
+            if ((off & 3) == 1) {           /* XH opens the group */
+                uint64_t sig = mga_ptr_shape_sig(s);
+                s->ptr.grp_swap = s->ptr.sig_valid && sig != s->ptr.cur_sig;
+                s->ptr.cur_sig = sig;
+                s->ptr.sig_valid = true;
+                s->ptr.grp_x = mga_cursor_x(s);
+                s->ptr.grp_y = mga_cursor_y(s);
+                s->ptr.grp_open = true;
+            }
+        }
         s->xreg[0xF0 + (off & 3)] = val;
+        if (s->ptr.grp_open && (off & 3) == 3) {   /* YH closes it */
+            s->ptr.grp_open = false;
+            if (s->ptr.grp_swap) {
+                s->ptr.cs_dx += mga_cursor_x(s) - s->ptr.grp_x;
+                s->ptr.cs_dy += mga_cursor_y(s) - s->ptr.grp_y;
+                s->ptr.cs_seq++;
+            }
+        }
         break;
     default:
         qemu_log_mask(LOG_UNIMP, "mga: unimplemented DAC write 0x%x = 0x%x\n",
