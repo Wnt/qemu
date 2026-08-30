@@ -110,10 +110,51 @@ OBJECT_DECLARE_SIMPLE_TYPE(KhRamAbsState, KH_RAMABS)
 #define PUBLISH_TRIES   6      /* re-issues before a target is given up on */
 #define PROBE_TRIES     8      /* verification attempts before failing closed */
 
-/* Layouts: how the guest stores its pointer coordinate. */
+/*
+ * Layouts: how the guest stores its pointer coordinate.
+ *
+ * THREE INDEPENDENT AXES, and no two guests here agree on all of them, so read
+ * the table rather than assuming one convention with variants:
+ *
+ *   layout          width  byte order  field order   guest
+ *   point16le       int16  little      x then y      Rhapsody DR2
+ *   macpoint16be    int16  BIG         Y THEN X      classic Mac OS
+ *   point32le       int32  little      x then y      BeOS R5
+ *
+ * `macpoint16be` is the odd one out on BOTH byte order and field order: a Mac
+ * `Point` is documented as { short v; short h; } -- VERTICAL FIRST -- on a
+ * big-endian machine. Transposing it silently yields a pointer that tracks
+ * plausibly and lands wrong, so the two are separated here rather than being
+ * folded into an "endianness" flag.
+ */
 typedef enum {
-    KH_LAYOUT_POINT16LE = 0,   /* struct { int16_t x; int16_t y; } little-end */
+    KH_LAYOUT_POINT16LE = 0,   /* int16 x, int16 y -- little-endian          */
+    KH_LAYOUT_MACPOINT16BE,    /* int16 v, int16 h -- BIG-endian, V FIRST    */
 } KhLayout;
+
+/* How the guest is made to ACT on a coordinate we wrote. */
+typedef enum {
+    KH_PUBLISH_NUDGE = 0,      /* inject one small relative event (rhapsody)  */
+    KH_PUBLISH_CRSRNEW,        /* set CrsrNew := CrsrCouple (classic Mac OS)  */
+} KhPublish;
+
+/*
+ * Classic Mac OS low-memory globals, as OFFSETS from `addr`, which for this
+ * profile is MTemp ($0828). They are architectural -- documented in Inside
+ * Macintosh and fixed for the life of the OS -- which is the important
+ * difference from a coordinate found by searching one checkpoint's RAM: those
+ * die with a re-bake, these do not. One `addr` still describes the whole set
+ * because the layout of low memory is itself fixed.
+ */
+#define MAC_OFF_MTEMP       0x00   /* Point: the driver's accumulator         */
+#define MAC_OFF_RAWMOUSE    0x04   /* Point: what the cursor VBL task reads   */
+#define MAC_OFF_MOUSE       0x08   /* Point: the task's OUTPUT -- our sensor  */
+#define MAC_OFF_CRSRPIN     0x0C   /* Rect t,l,b,r: the guest's screen bounds */
+#define MAC_OFF_THECRSR_HOT 0x5C   /* Point: hotSpot of the current cursor    */
+#define MAC_OFF_CRSRNEW     0xA6   /* byte: "a new position is pending"       */
+#define MAC_OFF_CRSRCOUPLE  0xA7   /* byte: "the cursor tracks the mouse"     */
+#define MAC_CURSOR_SIDE     16     /* a hotspot outside this is not a hotspot */
+#define MAC_PROBE_PX        2      /* how far the connect probe moves         */
 
 struct KhRamAbsState {
     DeviceState parent_obj;
@@ -121,7 +162,8 @@ struct KhRamAbsState {
     /* --- properties --------------------------------------------------- */
     CharFrontend chr;
     uint64_t addr;             /* guest-physical address of the coordinate  */
-    char *layout;              /* "point16le"                               */
+    char *layout;              /* "point16le" | "macpoint16be"              */
+    char *publish;             /* "nudge" | "crsrnew"                       */
     uint32_t width, height;    /* surface bounds, for the sanity check      */
     int32_t nudge_units;       /* units injected to publish one write       */
     int32_t nudge_px;          /* pixels that many units are expected to move */
@@ -130,6 +172,7 @@ struct KhRamAbsState {
 
     /* --- derived ------------------------------------------------------ */
     KhLayout layout_id;
+    KhPublish publish_id;
 
     /* --- connection state (never migrated) ---------------------------- */
     bool connected;
@@ -158,6 +201,7 @@ struct KhRamAbsState {
     int pos_x, pos_y;
 
     uint64_t stat_refused, stat_reissued, stat_probe_fail;
+    uint64_t stat_gaveup, stat_converged, stat_paused;
 
     QEMUTimer *timer;
 };
@@ -165,13 +209,60 @@ struct KhRamAbsState {
 /* ------------------------------------------------------------------ */
 /* guest memory                                                        */
 
-static bool kh_read_point(KhRamAbsState *s, int *x, int *y)
+static void kh_rd_pt(KhRamAbsState *s, hwaddr off, int *x, int *y)
 {
     uint8_t b[4];
 
-    cpu_physical_memory_read(s->addr, b, sizeof(b));
-    *x = (int16_t)lduw_le_p(b);
-    *y = (int16_t)lduw_le_p(b + 2);
+    cpu_physical_memory_read(s->addr + off, b, sizeof(b));
+    if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
+        *y = (int16_t)lduw_be_p(b);          /* VERTICAL FIRST, big-endian */
+        *x = (int16_t)lduw_be_p(b + 2);
+    } else {
+        *x = (int16_t)lduw_le_p(b);
+        *y = (int16_t)lduw_le_p(b + 2);
+    }
+}
+
+static void kh_wr_pt(KhRamAbsState *s, hwaddr off, int x, int y)
+{
+    uint8_t b[4];
+
+    if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
+        stw_be_p(b, (uint16_t)(int16_t)y);
+        stw_be_p(b + 2, (uint16_t)(int16_t)x);
+    } else {
+        stw_le_p(b, (uint16_t)(int16_t)x);
+        stw_le_p(b + 2, (uint16_t)(int16_t)y);
+    }
+    cpu_physical_memory_write(s->addr + off, b, sizeof(b));
+}
+
+/*
+ * THE READ-BACK SENSOR, and on the Mac profile it is deliberately NOT one of
+ * the addresses we write.
+ *
+ * On `point16le` the guest keeps one coordinate: we write it and we read it,
+ * so the read-back answers "is the guest still holding what we put there".
+ * On `macpoint16be` we write MTemp and RawMouse, and the cursor VBL task
+ * COMPUTES `Mouse` from RawMouse and repaints. So reading `Mouse` does not ask
+ * whether our store stuck -- kh_write_point already proved that -- it asks
+ * WHETHER THE GUEST ACTED ON IT, by exact equality rather than an expected
+ * delta. A wedged or dead guest cannot fake that, which makes this the
+ * strongest verification of the two profiles.
+ *
+ * That strength depends entirely on NEVER WRITING `Mouse`, and the reason is
+ * the same fact from the other side: the VBL task repaints only when its
+ * freshly computed value DIFFERS from the `Mouse` it already had, so
+ * pre-writing `Mouse` makes its own change detector conclude nothing moved --
+ * it clears CrsrNew and draws nothing, while every global reads back exactly
+ * correct and the pointer sits still. Measured, not theorised. Anyone
+ * "simplifying" the write set to include `Mouse` destroys the verification and
+ * the movement together, and gets the most misleading symptom available.
+ */
+static bool kh_read_point(KhRamAbsState *s, int *x, int *y)
+{
+    kh_rd_pt(s, s->layout_id == KH_LAYOUT_MACPOINT16BE ? MAC_OFF_MOUSE : 0,
+             x, y);
     return true;
 }
 
@@ -184,14 +275,27 @@ static bool kh_read_point(KhRamAbsState *s, int *x, int *y)
  */
 static bool kh_write_point(KhRamAbsState *s, int x, int y)
 {
-    uint8_t b[4];
     int rx, ry;
 
-    stw_le_p(b, (uint16_t)(int16_t)x);
-    stw_le_p(b + 2, (uint16_t)(int16_t)y);
-    cpu_physical_memory_write(s->addr, b, sizeof(b));
+    if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
+        /*
+         * Both halves of the ADB driver's own state, exactly as its interrupt
+         * writes them: MTemp is the accumulator a later relative event adds to,
+         * RawMouse is what the VBL task consumes. Writing only one leaves the
+         * two disagreeing, and the next real mouse movement jumps.
+         */
+        kh_wr_pt(s, MAC_OFF_MTEMP, x, y);
+        kh_wr_pt(s, MAC_OFF_RAWMOUSE, x, y);
+        kh_rd_pt(s, MAC_OFF_MTEMP, &rx, &ry);
+        if (rx != x || ry != y) {
+            return false;
+        }
+        kh_rd_pt(s, MAC_OFF_RAWMOUSE, &rx, &ry);
+        return rx == x && ry == y;
+    }
 
-    kh_read_point(s, &rx, &ry);
+    kh_wr_pt(s, 0, x, y);
+    kh_rd_pt(s, 0, &rx, &ry);
     return rx == x && ry == y;
 }
 
@@ -249,6 +353,9 @@ static void kh_err(KhRamAbsState *s, uint64_t seq, const char *why)
 /* ------------------------------------------------------------------ */
 /* publishing                                                          */
 
+/* Defined below; kh_issue's paused path ack-and-drops a deferred edge. */
+static void kh_release_btn(KhRamAbsState *s, const char *why);
+
 static void kh_arm(KhRamAbsState *s)
 {
     timer_mod(s->timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + s->settle_ms);
@@ -298,6 +405,45 @@ static void kh_issue(KhRamAbsState *s)
         }
         s->want_x = s->tgt_x;
         s->want_y = s->tgt_y;
+        /*
+         * macos753 starts `-loadvm golden -S` and idle-auto-pauses at 60 s, so
+         * a stopped guest is this station's RESTING STATE, not an exception.
+         * Do not hold a deferred edge against it: the coordinate is written and
+         * durable, so ack-and-drop the edge WITH THE REASON instead of letting
+         * the daemon's ack deadline expire and tear the connection down.
+         */
+        s->stat_paused++;
+        kh_release_btn(s, "paused=1");
+        kh_arm(s);
+        return;
+    }
+
+    if (s->publish_id == KH_PUBLISH_CRSRNEW) {
+        /*
+         * No nudge, and therefore no pre-compensation: classic Mac OS has a
+         * documented publish of its own. Write the exact target, then set
+         * CrsrNew := CrsrCouple. The cursor VBL task picks that up on the next
+         * tick, recomputes `Mouse` from RawMouse and repaints -- which is the
+         * same path the ADB driver's own interrupt uses, so we are not racing
+         * the OS, we are using it. Copying CrsrCouple rather than storing a
+         * constant keeps the semantics: if the guest has DECOUPLED the cursor
+         * from the mouse, CrsrCouple is 0 and this correctly publishes nothing.
+         */
+        uint8_t couple;
+
+        if (!kh_write_point(s, s->tgt_x, s->tgt_y)) {
+            kh_write_failed(s);
+            return;
+        }
+        s->want_x = s->tgt_x;
+        s->want_y = s->tgt_y;
+        cpu_physical_memory_read(s->addr + MAC_OFF_CRSRCOUPLE, &couple, 1);
+        cpu_physical_memory_write(s->addr + MAC_OFF_CRSRNEW, &couple, 1);
+        if (s->trace) {
+            info_report("kh-ramabs: issue target=%d,%d publish=crsrnew "
+                        "couple=%u try=%d", s->tgt_x, s->tgt_y, couple,
+                        s->publish_tries);
+        }
         kh_arm(s);
         return;
     }
@@ -327,14 +473,43 @@ static void kh_issue(KhRamAbsState *s)
     kh_arm(s);
 }
 
-static void kh_release_btn(KhRamAbsState *s)
+/*
+ * Release the deferred button edge -- and SAY WHICH OUTCOME it is riding on.
+ *
+ * "We are not going to apply this, ack anyway" covers two opposite situations
+ * that look identical in code. One is required; the other manufactures false
+ * evidence, and a bare OK cannot tell them apart:
+ *
+ *   why == NULL      the target CONVERGED. A plain OK is the whole truth.
+ *   why "paused=1"   the guest is STOPPED, so nothing can apply until it
+ *                    resumes. Ack-and-drop is correct here -- the alternative
+ *                    is the daemon looping forever on "ack timeout;
+ *                    reconnecting" against its own resync preamble -- and it is
+ *                    scoped to exactly this, the one case where discarding is
+ *                    honest.
+ *   why "gaveup=1 ..."  we TRIED and never got there. An unqualified OK would
+ *                    tell the caller the click landed where it aimed when it
+ *                    did not. The status word stays OK so a fail-closed engine
+ *                    cannot wedge the daemon, but the ack carries the target
+ *                    and the actual read-back so the caller can distinguish a
+ *                    converged apply from a give-up without guessing.
+ *
+ * The bug this whole wave started from was a channel that reported healthy
+ * counts while nothing reached the sink. An ack that acks what it discarded,
+ * without saying so, is the same sin one layer down.
+ */
+static void kh_release_btn(KhRamAbsState *s, const char *why)
 {
     if (!s->have_btn) {
         return;
     }
     qemu_input_queue_btn(NULL, s->btn, s->btn_down);
     qemu_input_event_sync();
-    kh_ok(s, s->btn_seq);
+    if (why) {
+        kh_send(s, "%" PRIu64 " OK %s\n", s->btn_seq, why);
+    } else {
+        kh_ok(s, s->btn_seq);
+    }
     s->have_btn = false;
 }
 
@@ -387,7 +562,8 @@ static void kh_tick(void *opaque)
         s->pos_known = true;
         s->pos_x = x;
         s->pos_y = y;
-        kh_release_btn(s);
+        s->stat_converged++;
+        kh_release_btn(s, NULL);
         return;
     }
     if (++s->publish_tries >= PUBLISH_TRIES) {
@@ -395,13 +571,21 @@ static void kh_tick(void *opaque)
          * The publish never took. Say so rather than pretending: an unknown
          * position is a legitimate answer and STAT reports it.
          */
+        g_autofree char *why = g_strdup_printf(
+            "gaveup=1 want=%d,%d got=%d,%d", s->tgt_x, s->tgt_y, x, y);
+
         s->have_target = false;
         s->pos_known = false;
-        s->stat_reissued++;
+        /*
+         * Counted SEPARATELY from re-issues and from convergences. A give-up
+         * folded into a retry counter is invisible in aggregate, which is how a
+         * pointer that never arrives can still look healthy.
+         */
+        s->stat_gaveup++;
         error_report("kh-ramabs: gave up publishing %d,%d after %d tries "
                      "(guest holds %d,%d)", s->tgt_x, s->tgt_y,
                      s->publish_tries, x, y);
-        kh_release_btn(s);
+        kh_release_btn(s, why);
         return;
     }
     s->stat_reissued++;
@@ -438,8 +622,22 @@ static void kh_start_probe(KhRamAbsState *s)
      * event. Quiescence therefore fails the probe rather than passing it.
      */
     s->probing = true;
-    s->tgt_x = x;
-    s->tgt_y = y;
+    if (s->publish_id == KH_PUBLISH_CRSRNEW) {
+        /*
+         * `crsrnew` has no nudge, so re-stating the current position would be a
+         * genuine no-op and a quiescent guest would PASS -- exactly the false
+         * positive this probe exists to prevent. Aim a couple of pixels away
+         * instead, inward from the nearer edge so the guest's own pin cannot
+         * absorb it, and require `Mouse` to ARRIVE there. That proves the
+         * address, the store, the publish and the guest's participation in one
+         * step. The visitor's first MOVEA corrects the 2px immediately.
+         */
+        s->tgt_x = x - kh_dir(x, s->width) * MAC_PROBE_PX;
+        s->tgt_y = y - kh_dir(y, s->height) * MAC_PROBE_PX;
+    } else {
+        s->tgt_x = x;
+        s->tgt_y = y;
+    }
     s->publish_tries = 0;
     kh_issue(s);
 }
@@ -456,17 +654,21 @@ static void kh_stat(KhRamAbsState *s, uint64_t seq)
     if (s->pos_known) {
         kh_send(s, "%" PRIu64 " OK addr=0x%" PRIx64 " layout=%s verified=%s "
                 "pos=%d,%d nudge=%d/%dpx refused=%" PRIu64 " reissued=%" PRIu64
-                " probefail=%" PRIu64 "\n",
+                " probefail=%" PRIu64 " converged=%" PRIu64 " gaveup=%" PRIu64
+                " paused=%" PRIu64 "\n",
                 seq, s->addr, s->layout, s->verified ? "yes" : "no",
                 s->pos_x, s->pos_y, s->nudge_units, s->nudge_px,
-                s->stat_refused, s->stat_reissued, s->stat_probe_fail);
+                s->stat_refused, s->stat_reissued, s->stat_probe_fail,
+                s->stat_converged, s->stat_gaveup, s->stat_paused);
     } else {
         kh_send(s, "%" PRIu64 " OK addr=0x%" PRIx64 " layout=%s verified=%s "
                 "pos=unknown nudge=%d/%dpx refused=%" PRIu64 " reissued=%"
-                PRIu64 " probefail=%" PRIu64 "\n",
+                PRIu64 " probefail=%" PRIu64 " converged=%" PRIu64 " gaveup=%" PRIu64
+                " paused=%" PRIu64 "\n",
                 seq, s->addr, s->layout, s->verified ? "yes" : "no",
                 s->nudge_units, s->nudge_px,
-                s->stat_refused, s->stat_reissued, s->stat_probe_fail);
+                s->stat_refused, s->stat_reissued, s->stat_probe_fail,
+                s->stat_converged, s->stat_gaveup, s->stat_paused);
     }
 }
 
@@ -496,14 +698,14 @@ static void kh_button(KhRamAbsState *s, uint64_t seq, InputButton b, bool down)
     }
     if (s->have_btn) {
         /* one edge in flight at a time: release the old one first */
-        kh_release_btn(s);
+        kh_release_btn(s, "superseded=1");
     }
     s->btn = b;
     s->btn_down = down;
     s->btn_seq = seq;
     s->have_btn = true;
     if (!s->have_target) {
-        kh_release_btn(s);    /* nothing to wait behind */
+        kh_release_btn(s, NULL);   /* nothing to wait behind */
     }
 }
 
@@ -630,16 +832,35 @@ static void kh_realize(DeviceState *dev, Error **errp)
                    "guest's own pointer coordinate>");
         return;
     }
-    if (strcmp(s->layout, "point16le") != 0) {
-        error_setg(errp, "kh-ramabs: unknown layout=%s (have: point16le)",
-                   s->layout);
+    if (strcmp(s->layout, "point16le") == 0) {
+        s->layout_id = KH_LAYOUT_POINT16LE;
+    } else if (strcmp(s->layout, "macpoint16be") == 0) {
+        s->layout_id = KH_LAYOUT_MACPOINT16BE;
+    } else {
+        error_setg(errp, "kh-ramabs: unknown layout=%s "
+                   "(have: point16le, macpoint16be)", s->layout);
         return;
     }
-    if (s->nudge_px == 0 || s->nudge_units == 0) {
+    if (strcmp(s->publish, "nudge") == 0) {
+        s->publish_id = KH_PUBLISH_NUDGE;
+    } else if (strcmp(s->publish, "crsrnew") == 0) {
+        s->publish_id = KH_PUBLISH_CRSRNEW;
+    } else {
+        error_setg(errp, "kh-ramabs: unknown publish=%s (have: nudge, crsrnew)",
+                   s->publish);
+        return;
+    }
+    /*
+     * The nudge parameters describe the guest's relative-motion scaling, so
+     * they are meaningless under a publish that injects no relative motion.
+     * Only require them where they are used, rather than making one profile
+     * carry the other's calibration.
+     */
+    if (s->publish_id == KH_PUBLISH_NUDGE &&
+        (s->nudge_px == 0 || s->nudge_units == 0)) {
         error_setg(errp, "kh-ramabs: nudge-units and nudge-px must be non-zero");
         return;
     }
-    s->layout_id = KH_LAYOUT_POINT16LE;
     s->timer = timer_new_ms(QEMU_CLOCK_REALTIME, kh_tick, s);
 
     qemu_chr_fe_set_handlers(&s->chr, kh_can_receive, kh_receive,
@@ -662,6 +883,7 @@ static const Property kh_ramabs_props[] = {
     DEFINE_PROP_CHR("chardev", KhRamAbsState, chr),
     DEFINE_PROP_UINT64("addr", KhRamAbsState, addr, 0),
     DEFINE_PROP_STRING("layout", KhRamAbsState, layout),
+    DEFINE_PROP_STRING("publish", KhRamAbsState, publish),
     DEFINE_PROP_UINT32("width", KhRamAbsState, width, 1024),
     DEFINE_PROP_UINT32("height", KhRamAbsState, height, 768),
     DEFINE_PROP_INT32("nudge-units", KhRamAbsState, nudge_units, 2),
@@ -675,6 +897,7 @@ static void kh_instance_init(Object *obj)
     KhRamAbsState *s = KH_RAMABS(obj);
 
     s->layout = g_strdup("point16le");
+    s->publish = g_strdup("nudge");
 }
 
 static void kh_class_init(ObjectClass *klass, const void *data)
