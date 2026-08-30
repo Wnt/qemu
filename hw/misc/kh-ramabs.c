@@ -130,6 +130,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(KhRamAbsState, KH_RAMABS)
 typedef enum {
     KH_LAYOUT_POINT16LE = 0,   /* int16 x, int16 y -- little-endian          */
     KH_LAYOUT_MACPOINT16BE,    /* int16 v, int16 h -- BIG-endian, V FIRST    */
+    KH_LAYOUT_POINT32LE,       /* int32 x, int32 y -- little-endian          */
 } KhLayout;
 
 /* How the guest is made to ACT on a coordinate we wrote. */
@@ -209,12 +210,21 @@ struct KhRamAbsState {
 /* ------------------------------------------------------------------ */
 /* guest memory                                                        */
 
+/* A point is 4 bytes everywhere except point32le, where it is 8. */
+static size_t kh_pt_bytes(KhRamAbsState *s)
+{
+    return s->layout_id == KH_LAYOUT_POINT32LE ? 8 : 4;
+}
+
 static void kh_rd_pt(KhRamAbsState *s, hwaddr off, int *x, int *y)
 {
-    uint8_t b[4];
+    uint8_t b[8];
 
-    cpu_physical_memory_read(s->addr + off, b, sizeof(b));
-    if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
+    cpu_physical_memory_read(s->addr + off, b, kh_pt_bytes(s));
+    if (s->layout_id == KH_LAYOUT_POINT32LE) {
+        *x = (int32_t)ldl_le_p(b);
+        *y = (int32_t)ldl_le_p(b + 4);
+    } else if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
         *y = (int16_t)lduw_be_p(b);          /* VERTICAL FIRST, big-endian */
         *x = (int16_t)lduw_be_p(b + 2);
     } else {
@@ -225,16 +235,19 @@ static void kh_rd_pt(KhRamAbsState *s, hwaddr off, int *x, int *y)
 
 static void kh_wr_pt(KhRamAbsState *s, hwaddr off, int x, int y)
 {
-    uint8_t b[4];
+    uint8_t b[8];
 
-    if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
+    if (s->layout_id == KH_LAYOUT_POINT32LE) {
+        stl_le_p(b, (uint32_t)(int32_t)x);
+        stl_le_p(b + 4, (uint32_t)(int32_t)y);
+    } else if (s->layout_id == KH_LAYOUT_MACPOINT16BE) {
         stw_be_p(b, (uint16_t)(int16_t)y);
         stw_be_p(b + 2, (uint16_t)(int16_t)x);
     } else {
         stw_le_p(b, (uint16_t)(int16_t)x);
         stw_le_p(b + 2, (uint16_t)(int16_t)y);
     }
-    cpu_physical_memory_write(s->addr + off, b, sizeof(b));
+    cpu_physical_memory_write(s->addr + off, b, kh_pt_bytes(s));
 }
 
 /*
@@ -836,9 +849,11 @@ static void kh_realize(DeviceState *dev, Error **errp)
         s->layout_id = KH_LAYOUT_POINT16LE;
     } else if (strcmp(s->layout, "macpoint16be") == 0) {
         s->layout_id = KH_LAYOUT_MACPOINT16BE;
+    } else if (strcmp(s->layout, "point32le") == 0) {
+        s->layout_id = KH_LAYOUT_POINT32LE;
     } else {
         error_setg(errp, "kh-ramabs: unknown layout=%s "
-                   "(have: point16le, macpoint16be)", s->layout);
+                   "(have: point16le, macpoint16be, point32le)", s->layout);
         return;
     }
     if (strcmp(s->publish, "nudge") == 0) {
