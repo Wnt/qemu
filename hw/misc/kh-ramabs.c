@@ -173,6 +173,30 @@ struct KhRamAbsState {
 
     /* --- derived ------------------------------------------------------ */
     KhLayout layout_id;
+    /*
+     * A publish is on the wire: written and injected, not yet read back. ONE at
+     * a time, always. The daemon streams targets at pointer rates and every
+     * nudge-publish injects a relative event the guest consumes on its own
+     * schedule, so issuing a second before the first is consumed leaves BOTH
+     * deltas to land on top of whatever we most recently wrote; the read-back
+     * then disagrees and issues more. That runs away, and it is invisible to a
+     * rig that sends one target and waits: it first appeared as "gave up
+     * publishing 560,330 after 6 tries (guest holds 560,302)" the first time
+     * this was driven by a real browser session instead of one target at a time.
+     */
+    bool issued;
+    /*
+     * This target has actually been PUBLISHED, not merely written. While the
+     * guest is stopped kh_issue writes the coordinate and stops there -- no
+     * nudge can be consumed and no cursor task runs -- so on resume the value
+     * matches what we wrote and the tick would call that convergence without
+     * the guest ever having repainted or reprocessed. Anything the guest had
+     * queued before the stop then lands AFTER we declared success, with nothing
+     * left watching: measured at the shipping boundary as a first session
+     * settling at 298,280 for a commanded 300,300. So a written-but-unpublished
+     * target is re-published once the guest runs, and the read-back corrects it.
+     */
+    bool published;
     KhPublish publish_id;
 
     /* --- connection state (never migrated) ---------------------------- */
@@ -425,6 +449,7 @@ static void kh_issue(KhRamAbsState *s)
          * durable, so ack-and-drop the edge WITH THE REASON instead of letting
          * the daemon's ack deadline expire and tear the connection down.
          */
+        s->published = false;
         s->stat_paused++;
         kh_release_btn(s, "paused=1");
         kh_arm(s);
@@ -452,6 +477,7 @@ static void kh_issue(KhRamAbsState *s)
         s->want_y = s->tgt_y;
         cpu_physical_memory_read(s->addr + MAC_OFF_CRSRCOUPLE, &couple, 1);
         cpu_physical_memory_write(s->addr + MAC_OFF_CRSRNEW, &couple, 1);
+        s->published = true;
         if (s->trace) {
             info_report("kh-ramabs: issue target=%d,%d publish=crsrnew "
                         "couple=%u try=%d", s->tgt_x, s->tgt_y, couple,
@@ -476,6 +502,8 @@ static void kh_issue(KhRamAbsState *s)
     qemu_input_queue_rel(NULL, INPUT_AXIS_Y,
                          (dy / s->nudge_px) * s->nudge_units);
     qemu_input_event_sync();
+    s->issued = true;
+    s->published = true;
 
     if (s->trace) {
         info_report("kh-ramabs: issue target=%d,%d wrote=%d,%d nudge=%d,%d try=%d",
@@ -561,6 +589,45 @@ static void kh_tick(void *opaque)
     KhRamAbsState *s = opaque;
     int x, y;
 
+    /*
+     * A STOPPED GUEST CAN NEITHER PUBLISH NOR BE OBSERVED, so RESOLVE nothing
+     * against one: reading back our own write with the guest asleep is not
+     * convergence, and during verification it would be a VERIFIED address --
+     * the quiescence hole the read-back closes everywhere else, let in through
+     * the one path where the guest cannot act. Stations launch
+     * `-loadvm golden -S` and idle-auto-pause, so a stopped guest is a resting
+     * state, not an exception.
+     *
+     * BUT "do not resolve" IS NOT "do nothing", and conflating the two stranded
+     * every deferred button edge here: an edge waits behind a target, and while
+     * stopped this tick was the only thing that could still reach it, so a
+     * click issued against a stopped guest never acked and the daemon's ack
+     * deadline eventually tore the connection down. Ack-and-drop is scoped to
+     * "the guest cannot possibly apply this", and a stopped guest is exactly
+     * that case -- so the edge is released here WITH ITS REASON. Acking a verb
+     * the guest cannot possibly apply is required; acking one we merely failed
+     * to land would be a lie. The two are different, and only the second is
+     * forbidden.
+     */
+    if (!runstate_is_running()) {
+        /*
+         * Nothing can be in flight across a stop: the guest consumes no
+         * injected event while stopped, and kh_issue's paused branch rewrites
+         * the coordinate outright. Clearing this is not cosmetic -- a stuck
+         * `issued` makes kh_movea skip kh_issue entirely, which also skips the
+         * kh_arm inside it, so the timer stops and NOTHING is left that could
+         * release a deferred edge. That is the actual mechanism behind the
+         * stranded click; the missing release was only its symptom.
+         */
+        s->issued = false;
+        if (s->have_btn) {
+            s->stat_paused++;
+            kh_release_btn(s, "paused=1");
+        }
+        kh_arm(s);
+        return;
+    }
+
     if (s->probing) {
         kh_probe_step(s);
         return;
@@ -568,14 +635,35 @@ static void kh_tick(void *opaque)
     if (!s->have_target) {
         return;
     }
+    /*
+     * Written while stopped, never published. The guest is running now, so
+     * publish it for real rather than reading back our own write and calling
+     * that arrival.
+     */
+    if (!s->published) {
+        s->publish_tries = 0;
+        kh_issue(s);
+        return;
+    }
 
     kh_read_point(s, &x, &y);
     if (x == s->want_x && y == s->want_y) {
-        s->have_target = false;
+        s->issued = false;
         s->pos_known = true;
         s->pos_x = x;
         s->pos_y = y;
         s->stat_converged++;
+        /*
+         * A newer target arrived while that publish was in flight. The wire is
+         * clear now, so go there -- and hold any deferred edge until we are at
+         * the NEWEST target, not merely at some target.
+         */
+        if (s->tgt_x != x || s->tgt_y != y) {
+            s->publish_tries = 0;
+            kh_issue(s);
+            return;
+        }
+        s->have_target = false;
         kh_release_btn(s, NULL);
         return;
     }
@@ -588,6 +676,7 @@ static void kh_tick(void *opaque)
             "gaveup=1 want=%d,%d got=%d,%d", s->tgt_x, s->tgt_y, x, y);
 
         s->have_target = false;
+        s->issued = false;
         s->pos_known = false;
         /*
          * Counted SEPARATELY from re-issues and from convergences. A give-up
@@ -694,12 +783,29 @@ static void kh_movea(KhRamAbsState *s, uint64_t seq, int x, int y)
     x = MIN(MAX(x, 0), (int)s->width - 1);
     y = MIN(MAX(y, 0), (int)s->height - 1);
 
+    /*
+     * LATEST WINS. A newer target supersedes an unconfirmed one -- the visitor's
+     * pointer is wherever they last put it, and walking to a superseded
+     * position first is only ever visible as lag. While a publish is in flight
+     * we record the target and let kh_tick issue it once the wire is clear.
+     */
     s->tgt_x = x;
     s->tgt_y = y;
     s->tgt_seq = seq;
     s->have_target = true;
-    s->publish_tries = 0;
-    kh_issue(s);
+    s->published = false;
+    if (!s->issued) {
+        s->publish_tries = 0;
+        kh_issue(s);
+    } else {
+        /*
+         * A publish is in flight, so this target waits -- but it must not wait
+         * on nothing. kh_arm is otherwise only reached through kh_issue, so
+         * skipping the issue would also skip the arm and leave a target with no
+         * tick pending to resolve it.
+         */
+        kh_arm(s);
+    }
     kh_ok(s, seq);            /* acks on ACCEPT, never on arrival */
 }
 
@@ -812,6 +918,7 @@ static void kh_chr_event(void *opaque, QEMUChrEvent event)
         s->connected = true;
         s->rx_len = 0;
         s->have_target = false;
+        s->issued = false;
         s->have_btn = false;
         /* Nothing is known until this connection's own probe says so. */
         s->pos_known = false;
@@ -820,6 +927,7 @@ static void kh_chr_event(void *opaque, QEMUChrEvent event)
     case CHR_EVENT_CLOSED:
         s->connected = false;
         s->have_target = false;
+        s->issued = false;
         s->have_btn = false;
         s->verified = false;
         s->probing = false;
