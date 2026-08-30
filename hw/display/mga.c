@@ -242,7 +242,7 @@ typedef struct MGAPtrLoop {
 
     /* STAT counters */
     int res_x, res_y;
-    uint64_t steps, converged, gaveup, hot_seen;
+    uint64_t steps, converged, gaveup, hot_seen, reaims;
 } MGAPtrLoop;
 
 struct MGAState {
@@ -1146,7 +1146,10 @@ static void mga_ptr_epoch(MGAState *s, int x, int y, uint64_t seq)
     p->ta_seq = seq;
     p->ta_active = true;
     mga_ptr_target_reset(s);
-    mga_ptr_trace(s, "target %d,%d seq=%" PRIu64, p->ta_x, p->ta_y, seq);
+    mga_ptr_trace(s, "target %d,%d seq=%" PRIu64 " hot=%d,%d exact=%d "
+                  "sig=%016" PRIx64 "%s",
+                  p->ta_x, p->ta_y, seq, p->hot_x, p->hot_y, p->hot_exact,
+                  p->cur_sig, seq ? "" : " (internal re-aim)");
 }
 
 static void mga_ptr_drain(MGAState *s);
@@ -1471,6 +1474,11 @@ static void mga_ptr_rest(MGAState *s)
     mga_ptr_observe(s, rx, ry, true);
     if (dirty && (abs(lx - rx - p->hot_x) > (int)p->dead ||
                   abs(ly - ry - p->hot_y) > (int)p->dead)) {
+        p->reaims++;
+        mga_ptr_trace(s, "rest re-aim latch=%d,%d r=%d,%d hot=%d,%d exact=%d "
+                      "err=%d,%d n=%" PRIu64,
+                      lx, ly, rx, ry, p->hot_x, p->hot_y, p->hot_exact,
+                      lx - rx - p->hot_x, ly - ry - p->hot_y, p->reaims);
         mga_ptr_epoch(s, lx, ly, 0);
     }
 }
@@ -1723,14 +1731,16 @@ static void mga_ptr_line(MGAState *s, char *line)
                      "q=%u active=%d homing=%d res=%d,%d mode=%u cadd=0x%x "
                      "sig=%016" PRIx64 " hot_exact=%d "
                      "steps=%" PRIu64
-                     " conv=%" PRIu64 " giveup=%" PRIu64 " hot_seen=%" PRIu64,
+                     " conv=%" PRIu64 " giveup=%" PRIu64 " hot_seen=%" PRIu64
+                     " reaims=%" PRIu64,
                      seq, rx, ry, have, p->hot_x, p->hot_y, p->gx, p->gy,
                      p->qlen, p->ta_active, p->homing, p->res_x, p->res_y,
                      s->xreg[MGA_XCURCTRL] & 3,
                      ((((uint32_t)s->xreg[MGA_XCURADDH] << 8) |
                        s->xreg[MGA_XCURADDL]) << 10),
                      p->cur_sig, p->hot_exact,
-                     p->steps, p->converged, p->gaveup, p->hot_seen);
+                     p->steps, p->converged, p->gaveup, p->hot_seen,
+                     p->reaims);
         return;
     }
 
