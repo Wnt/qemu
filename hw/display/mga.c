@@ -229,6 +229,7 @@ typedef struct MGAPtrLoop {
 
     /* One-time clamp calibration (see mga_ptr_home). */
     bool homing;
+    bool home_pending;      /* owed a calibration once the guest runs */
     uint32_t home_windows;
     uint32_t home_still;
     int home_last_x, home_last_y;
@@ -1176,10 +1177,42 @@ static void mga_ptr_accept(MGAState *s, int ex, int ey, bool gaveup)
 }
 
 /* Release what queued behind the finished target, up to the next target. */
+/* Finish everything queued where it stands, acking as we go. */
+static void mga_ptr_flush(MGAState *s, const char *why)
+{
+    MGAPtrLoop *p = &s->ptr;
+
+    p->ta_active = false;
+    while (p->qlen) {
+        MGAPtrVerb *v = &p->q[p->qhead];
+
+        if (v->seq) {
+            mga_ptr_send(s, "%" PRIu64 " OK %s", v->seq, why);
+        }
+        mga_ptr_qpop(s);
+    }
+}
+
 static void mga_ptr_drain(MGAState *s)
 {
     MGAPtrLoop *p = &s->ptr;
 
+    /*
+     * A STOPPED GUEST STILL HAS TO ANSWER. The window runs on VIRTUAL time, so
+     * it does not tick while the guest is paused -- and this station starts
+     * FROZEN (`-loadvm golden -S`) until the first visitor, and idle-pauses
+     * aggressively after. Anything queued would then sit unacked until the
+     * daemon declared the backend dead, and the reconnect would queue it again:
+     * measured on the live station as an endless "ack timeout (3 outstanding);
+     * reconnecting" against a guest that had simply never been started.
+     * Nothing is lost by finishing them here — the client restates its target
+     * before every edge, and a button edge into a frozen guest is a no-op
+     * whenever it is applied.
+     */
+    if (!runstate_is_running()) {
+        mga_ptr_flush(s, "paused=1");
+        return;
+    }
     while (!p->ta_active && !p->homing && p->qlen) {
         MGAPtrVerb *v = &p->q[p->qhead];
         int64_t now;
@@ -1581,6 +1614,8 @@ static void mga_ptr_rebase(MGAState *s)
     p->hot_next = 0;
     p->latch_valid = false;
     p->homing = false;
+    /* home_pending deliberately survives a rebase: it is owed by the
+     * CONNECTION, and a rebase happens on every resume. */
     p->btn_ready_ns = 0;
     mga_ptr_qclear(s);
     mga_ptr_reading(s, &rx, &ry);
@@ -1744,7 +1779,11 @@ static void mga_ptr_event(void *opaque, QEMUChrEvent event)
         s->ptr.open = true;
         s->ptr.rxlen = 0;
         mga_ptr_rebase(s);
-        mga_ptr_home_start(s);
+        if (runstate_is_running()) {
+            mga_ptr_home_start(s);
+        } else {
+            s->ptr.home_pending = true;
+        }
         mga_ptr_send(s, "HELLO mgaptr/1 caps=movea,btn,sync,stat,home surf=%dx%d",
                      mga_ptr_surf_w(s), mga_ptr_surf_h(s));
         mga_ptr_trace(s, "client connected");
@@ -1780,18 +1819,18 @@ static void mga_ptr_vm_state(void *opaque, bool running, RunState state)
     }
     if (running) {
         mga_ptr_rebase(s);
+        if (s->ptr.home_pending) {
+            /* The client connected while the guest was frozen, so its
+             * calibration was owed rather than skipped: take it now, on the
+             * first windows the guest actually runs. */
+            s->ptr.home_pending = false;
+            mga_ptr_home_start(s);
+        }
         timer_mod(&s->ptr.timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                   (int64_t)s->ptr.window_ms * SCALE_MS);
     } else {
         timer_del(&s->ptr.timer);
-        while (s->ptr.qlen) {
-            MGAPtrVerb *v = &s->ptr.q[s->ptr.qhead];
-            if (v->seq) {
-                mga_ptr_send(s, "%" PRIu64 " OK paused=1", v->seq);
-            }
-            mga_ptr_qpop(s);
-        }
-        s->ptr.ta_active = false;
+        mga_ptr_flush(s, "paused=1");
     }
 }
 
