@@ -2053,6 +2053,67 @@ static void artist_ptr_event(void *opaque, QEMUChrEvent ev)
     }
 }
 
+/*
+ * RESTORE IS NOT A PAUSE, AND THE VIRTUAL CLOCK IS WHY.
+ *
+ * The window timer is a QEMU_CLOCK_VIRTUAL timer that re-arms itself, from
+ * inside its own callback, to `virtual_now + ptr_window_ms`. A `loadvm` REWINDS
+ * QEMU_CLOCK_VIRTUAL to the value stored in the snapshot -- which, on a station
+ * that was itself started `-loadvm golden -S`, is earlier than the live clock by
+ * the whole elapsed session. The already-pending expiry therefore lands that
+ * same elapsed session IN THE FUTURE of the restored clock, and
+ * artist_ptr_window() simply never runs again.
+ *
+ * Nothing else heals it. MOVEA is acked from the receive path, so the daemon
+ * keeps getting OKs and its ack watchdog stays quiet on move-only traffic; the
+ * reconnect that watchdog eventually forces re-runs CHR_EVENT_OPENED, which
+ * resets engine STATE but does not re-arm this timer. What the visitor sees is
+ * a pointer frozen mid-target (STAT reports `aiming=1` with `giveups=0` -- it is
+ * not giving up, it never gets a window), button edges that pile up unapplied
+ * because applying them is this timer's job, and -- because a click is what
+ * moves keyboard focus -- a keyboard that "stopped working". One stalled timer,
+ * all three symptoms.
+ *
+ * Measured on a clone with the live device set: a 60 s session before the
+ * restore froze the pointer for 63 s; a real visitor's session freezes it for
+ * as long as they had been there.
+ *
+ * So re-arm whenever the machine (re-)enters `running`. That covers loadvm+cont
+ * -- the Restore button, via scripts/serve/reset-tile.sh -- and is a harmless
+ * re-arm on an ordinary idle-auto-pause resume.
+ */
+static void artist_ptr_vm_state_change(void *opaque, bool running,
+                                       RunState state)
+{
+    ARTISTState *s = opaque;
+
+    if (!running || !s->ptr_timer) {
+        return;
+    }
+    /*
+     * Drop the reckoning that described the PRE-RESTORE guest. The cursor has
+     * teleported to wherever the checkpoint had it, and every count we had in
+     * flight died with the PS/2 queue the restore replaced, so retiring
+     * in-flight against the next reading would charge the engine for a jump it
+     * did not cause. ptr_edge_gap_until is a deadline denominated in the OLD
+     * clock and would block edges for the same interval, so it goes too.
+     *
+     * The measured hotspot deliberately SURVIVES: it is a property of the cursor
+     * GLYPH, not of its position, and a loadvm of this station's own checkpoint
+     * restores the same glyph. Re-homing here would clamp the pointer into the
+     * corner on every Restore, in front of the visitor, to re-learn a number we
+     * already hold.
+     */
+    s->ptr_have_last = false;
+    s->ptr_infl_x = s->ptr_infl_y = 0;
+    s->ptr_win = 0;
+    s->ptr_osc = 0;
+    s->ptr_wait = 0;
+    s->ptr_edge_gap_until = 0;
+    timer_mod(s->ptr_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + s->ptr_window_ms);
+}
+
 static void artist_ptr_init(ARTISTState *s)
 {
     if (!qemu_chr_fe_backend_connected(&s->ptrctl)) {
@@ -2075,6 +2136,7 @@ static void artist_ptr_init(ARTISTState *s)
     s->ptr_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, artist_ptr_window, s);
     timer_mod(s->ptr_timer,
               qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + s->ptr_window_ms);
+    qemu_add_vm_change_state_handler(artist_ptr_vm_state_change, s);
 }
 
 static void artist_realizefn(DeviceState *dev, Error **errp)
